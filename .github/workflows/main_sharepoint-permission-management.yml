@@ -37,12 +37,15 @@ jobs:
           if [ -d public ]; then cp -R public deploy/public; fi
           cp -R scripts deploy/scripts
           node -e "const fs = require('fs'); const pkg = JSON.parse(fs.readFileSync('deploy/package.json', 'utf8')); pkg.scripts = { start: 'node scripts/start.js' }; fs.writeFileSync('deploy/package.json', JSON.stringify(pkg, null, 2));"
+          test -f deploy/server.js
+          test -f deploy/.next/BUILD_ID
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
           path: deploy
+          include-hidden-files: true
 
   deploy:
     runs-on: ubuntu-latest
