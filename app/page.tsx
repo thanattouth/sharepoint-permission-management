@@ -21,7 +21,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365 } from "@/lib/auth";
+import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365, signOutMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore } from "@/lib/audit-store-factory";
@@ -290,7 +290,7 @@ export default function Home() {
     }
   }
 
-  function signOut() {
+  async function signOut() {
     setSignedIn(false);
     setAccount(null);
     setAccountLabel("Admin");
@@ -310,6 +310,12 @@ export default function Home() {
     window.sessionStorage.setItem(signedOutMarkerKey, "true");
     clearSavedSessionView();
     replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
+
+    try {
+      await signOutMicrosoft365(account);
+    } catch {
+      // Local session state is already cleared; MSAL may fail if the popup is blocked.
+    }
   }
 
   function returnToSites() {

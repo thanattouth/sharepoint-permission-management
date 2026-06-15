@@ -53,6 +53,17 @@ export async function getSignedInAccount() {
   return account;
 }
 
+export async function signOutMicrosoft365(account?: AccountInfo | null) {
+  const msal = getMsalInstance();
+  await msal.initialize();
+  const activeAccount = account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? undefined;
+
+  await msal.logoutPopup({
+    account: activeAccount,
+    mainWindowRedirectUri: typeof window === "undefined" ? undefined : window.location.origin,
+  });
+}
+
 export async function acquireGraphToken(account?: AccountInfo | null) {
   const msal = getMsalInstance();
   await msal.initialize();
