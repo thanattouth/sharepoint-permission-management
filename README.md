@@ -57,6 +57,8 @@ Set `NEXT_PUBLIC_AUDIT_LOG_ENABLED=false` to disable SharePoint audit writes wit
 
 For Azure App Service deployments, add the same `NEXT_PUBLIC_*` values as GitHub repository variables too. Next.js embeds `NEXT_PUBLIC_*` values during `next build`, so Azure App Settings alone are not enough when GitHub Actions builds the artifact.
 
+Audit persistence is isolated behind `AuditStore` in `lib/audit-store.ts`. The current implementation is `SharePointListAuditStore`; a future database-backed store can be added without changing permission or UI logic.
+
 ## Graph Integration
 
 When the Entra settings are present, the app connects to Microsoft Graph after sign-in and loads:

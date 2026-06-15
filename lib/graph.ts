@@ -1,6 +1,5 @@
 import type {
   AccessRole,
-  AuditLogDraft,
   ContentItem,
   LibrarySummary,
   PermissionEntry,
@@ -10,7 +9,8 @@ import type {
   SiteSummary,
   UserSuggestion,
 } from "./types";
-import { auditListName, auditLogEnabled, auditSite, isInternalEmail, protectedLibraryNames, targetSites } from "./app-config";
+import { isInternalEmail, protectedLibraryNames, targetSites } from "./app-config";
+import { GraphRequestClient, type GraphCollection, type TokenProvider } from "./graph-request";
 import { normalizeSharePointPrincipals } from "./permission-normalization";
 
 export type PermissionDraft = {
@@ -30,7 +30,6 @@ export interface SharePointPermissionClient {
   removePermission(permission: PermissionEntry): Promise<void>;
   searchUsers(query: string): Promise<UserSuggestion[]>;
   getReportSummary(): Promise<ReportSummary>;
-  writeAuditLog(entry: AuditLogDraft): Promise<void>;
 }
 
 export const graphScopes = [
@@ -40,12 +39,6 @@ export const graphScopes = [
   "Sites.ReadWrite.All",
   "Files.ReadWrite.All",
 ];
-
-type TokenProvider = () => Promise<string>;
-
-type GraphCollection<T> = {
-  value?: T[];
-};
 
 type GraphSite = {
   id: string;
@@ -78,15 +71,6 @@ type GraphIdentity = {
   email?: string;
   loginName?: string;
   userPrincipalName?: string;
-};
-
-type GraphList = {
-  id: string;
-  displayName?: string;
-};
-
-type GraphListItem = {
-  id: string;
 };
 
 type GraphUser = {
@@ -135,14 +119,16 @@ type GraphInviteError = {
 };
 
 export class GraphSharePointPermissionClient implements SharePointPermissionClient {
-  private auditListPromise?: Promise<{ siteId: string; listId: string } | undefined>;
+  private readonly graph: GraphRequestClient;
 
-  constructor(private readonly getToken: TokenProvider) {}
+  constructor(getToken: TokenProvider) {
+    this.graph = new GraphRequestClient(getToken);
+  }
 
   async listSites() {
     const sites = await Promise.all(
       targetSites.map(async (target) => {
-        const site = await this.request<GraphSite>(
+        const site = await this.graph.request<GraphSite>(
           `/sites/${target.hostname}:${encodeURI(target.path)}?$select=id,name,displayName,webUrl`,
         );
         return mapSite(site, target.hostname, target.path);
@@ -152,13 +138,13 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
   }
 
   async listLibraries(siteId: string) {
-    const drives = await this.request<GraphCollection<GraphDrive>>(
+    const drives = await this.graph.request<GraphCollection<GraphDrive>>(
       `/sites/${encodeURIComponent(siteId)}/drives?$select=id,name,webUrl`,
     );
 
     const libraries = await Promise.all(
       (drives.value ?? []).map(async (drive) => {
-        const root = await this.request<GraphDriveItem>(
+        const root = await this.graph.request<GraphDriveItem>(
           `/drives/${encodeURIComponent(drive.id)}/root?$select=id,name,folder`,
         );
         return mapLibrary(siteId, drive, root);
@@ -182,7 +168,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       throw new Error("Selected item is missing Graph drive metadata.");
     }
 
-    const children = await this.request<GraphCollection<GraphDriveItem>>(
+    const children = await this.graph.request<GraphCollection<GraphDriveItem>>(
       `/drives/${encodeURIComponent(item.driveId)}/items/${encodeURIComponent(item.itemId)}/children?$select=id,name,webUrl,size,lastModifiedDateTime,folder,file`,
     );
 
@@ -191,7 +177,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
 
   async listPermissions(libraryId: string) {
     const [driveId, itemId] = parseLibraryId(libraryId);
-    const permissions = await this.request<GraphCollection<GraphPermission>>(
+    const permissions = await this.graph.request<GraphCollection<GraphPermission>>(
       `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}/permissions`,
     );
     return (permissions.value ?? []).map((permission) => mapPermission(libraryId, driveId, itemId, permission));
@@ -211,7 +197,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       message: "You have been granted access from SharePoint Permission Management.",
     };
 
-    const inviteResponse = await this.request<GraphCollection<GraphPermission>>(
+    const inviteResponse = await this.graph.request<GraphCollection<GraphPermission>>(
       `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}/invite`,
       {
         method: "POST",
@@ -235,7 +221,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       throw new Error("Selected permission is missing Graph drive metadata.");
     }
 
-    const updated = await this.request<GraphPermission>(
+    const updated = await this.graph.request<GraphPermission>(
       `/drives/${encodeURIComponent(permission.driveId)}/items/${encodeURIComponent(permission.itemId)}/permissions/${encodeURIComponent(permission.id)}`,
       {
         method: "PATCH",
@@ -251,7 +237,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       throw new Error("Selected permission is missing Graph drive metadata.");
     }
 
-    await this.request<void>(
+    await this.graph.request<void>(
       `/drives/${encodeURIComponent(permission.driveId)}/items/${encodeURIComponent(permission.itemId)}/permissions/${encodeURIComponent(permission.id)}`,
       {
         method: "DELETE",
@@ -266,7 +252,7 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
     const search = encodeURIComponent(
       `"displayName:${normalizedQuery}" OR "mail:${normalizedQuery}" OR "userPrincipalName:${normalizedQuery}"`,
     );
-    const users = await this.request<GraphCollection<GraphUser>>(
+    const users = await this.graph.request<GraphCollection<GraphUser>>(
       `/users?$search=${search}&$select=id,displayName,mail,userPrincipalName,jobTitle&$top=8&$count=true`,
       {
         headers: {
@@ -320,127 +306,10 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
     };
   }
 
-  async writeAuditLog(entry: AuditLogDraft) {
-    if (!auditLogEnabled) return;
-
-    const auditTarget = await this.getAuditList();
-    if (!auditTarget) return;
-
-    await this.request<GraphListItem>(
-      `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          fields: {
-            Title: formatAuditTitle(entry),
-            Action: entry.action,
-            ActorEmail: entry.actorEmail,
-            ActorName: entry.actorName,
-            ActorRole: entry.actorRole,
-            TargetEmail: entry.targetEmail ?? "",
-            TargetName: entry.targetName ?? "",
-            PermissionRole: entry.permissionRole ?? "",
-            PreviousRole: entry.previousRole ?? "",
-            SiteName: entry.siteName ?? "",
-            LibraryName: entry.libraryName ?? "",
-            ItemId: entry.itemId ?? "",
-            Source: entry.source ?? "",
-            TenantType: entry.tenantType ?? "",
-            Status: entry.status,
-            ErrorMessage: entry.errorMessage ?? "",
-            GraphRequestId: entry.graphRequestId ?? "",
-            CreatedAt: new Date().toISOString(),
-          },
-        }),
-      },
-    );
-  }
-
-  private async getAuditList() {
-    this.auditListPromise ??= this.resolveAuditList();
-    return this.auditListPromise;
-  }
-
-  private async resolveAuditList() {
-    const site = await this.request<GraphSite>(
-      `/sites/${auditSite.hostname}:${encodeURI(auditSite.path)}?$select=id,name,displayName,webUrl`,
-    );
-    const siteId = site.id;
-    const lists = await this.request<GraphCollection<GraphList>>(
-      `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
-    );
-    const existing = (lists.value ?? []).find((list) => list.displayName === auditListName);
-    if (existing) return { siteId, listId: existing.id };
-
-    const created = await this.request<GraphList>(`/sites/${encodeURIComponent(siteId)}/lists`, {
-      method: "POST",
-      body: JSON.stringify({
-        displayName: auditListName,
-        columns: auditColumns.map((name) => ({
-          name,
-          text: {},
-        })),
-        list: {
-          template: "genericList",
-        },
-      }),
-    });
-
-    return { siteId, listId: created.id };
-  }
-
-  private async request<T>(path: string, init: RequestInit = {}) {
-    const token = await this.getToken();
-    const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(formatGraphError(response.status, body || response.statusText));
-    }
-
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    return (await response.json()) as T;
-  }
 }
 
 function normalizeDirectorySearchQuery(value: string) {
   return value.trim().replace(/["\\]/g, "").slice(0, 64);
-}
-
-const auditColumns = [
-  "Action",
-  "ActorEmail",
-  "ActorName",
-  "ActorRole",
-  "TargetEmail",
-  "TargetName",
-  "PermissionRole",
-  "PreviousRole",
-  "SiteName",
-  "LibraryName",
-  "ItemId",
-  "Source",
-  "TenantType",
-  "Status",
-  "ErrorMessage",
-  "GraphRequestId",
-  "CreatedAt",
-];
-
-function formatAuditTitle(entry: AuditLogDraft) {
-  return [entry.action, entry.targetEmail || entry.targetName || entry.libraryName, entry.status]
-    .filter(Boolean)
-    .join(" - ");
 }
 
 function mapUserSuggestion(user: GraphUser): UserSuggestion | undefined {
@@ -504,41 +373,6 @@ function sumBy(items: ReportSiteSummary[], key: keyof Pick<
   | "inheritedPermissionCount"
 >) {
   return items.reduce((total, item) => total + item[key], 0);
-}
-
-function formatGraphError(status: number, body: string) {
-  try {
-    const parsed = JSON.parse(body) as {
-      error?: {
-        code?: string;
-        message?: string;
-        innerError?: {
-          "request-id"?: string;
-          date?: string;
-        };
-      };
-    };
-    const code = parsed.error?.code;
-    const message = parsed.error?.message;
-    const requestId = parsed.error?.innerError?.["request-id"];
-
-    if (code === "sharingFailed") {
-      return [
-        "Graph sharing failed. SharePoint rejected this invitation.",
-        message ? `Graph message: ${message}` : "",
-        "Check SharePoint organization sharing, site sharing, domain restrictions, Microsoft Entra external collaboration settings, and whether this email domain is allowed.",
-        requestId ? `Request ID: ${requestId}` : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-    }
-
-    return [`Graph ${status}${code ? ` ${code}` : ""}: ${message || body}`, requestId ? `Request ID: ${requestId}` : ""]
-      .filter(Boolean)
-      .join(" ");
-  } catch {
-    return `Graph ${status}: ${body}`;
-  }
 }
 
 function formatInviteErrors(permissions: GraphPermission[]) {

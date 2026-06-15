@@ -24,12 +24,14 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
+import { createAuditStore } from "@/lib/audit-store-factory";
 import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
   GraphSharePointPermissionClient,
   type PermissionDraft,
   type SharePointPermissionClient,
 } from "@/lib/graph";
+import type { AuditStore } from "@/lib/audit-store";
 import type {
   AccessRole,
   AuditEntry,
@@ -97,6 +99,9 @@ export default function Home() {
 
   const graphClient = useMemo<SharePointPermissionClient>(() => {
     return new GraphSharePointPermissionClient(() => acquireGraphToken(account));
+  }, [account]);
+  const auditStore = useMemo<AuditStore>(() => {
+    return createAuditStore(() => acquireGraphToken(account));
   }, [account]);
 
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
@@ -262,7 +267,8 @@ export default function Home() {
 
       const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(response.account));
       const nextSites = await nextClient.listSites();
-      void writeAuditWithClient(nextClient, {
+      const nextAuditStore = createAuditStore(() => acquireGraphToken(response.account));
+      void writeAuditWithStore(nextAuditStore, {
         action: "Login",
         status: "Success",
         actorEmail: response.account?.username ?? "Unknown",
@@ -668,7 +674,7 @@ export default function Home() {
     errorMessage?: string;
     graphRequestId?: string;
   }) {
-    return writeAuditWithClient(graphClient, {
+    return writeAuditWithStore(auditStore, {
       ...entry,
       actorEmail: account?.username ?? accountLabel,
       actorName: account?.name ?? accountLabel,
@@ -679,9 +685,9 @@ export default function Home() {
     });
   }
 
-  async function writeAuditWithClient(client: SharePointPermissionClient, entry: Parameters<SharePointPermissionClient["writeAuditLog"]>[0]) {
+  async function writeAuditWithStore(store: AuditStore, entry: Parameters<AuditStore["write"]>[0]) {
     try {
-      await client.writeAuditLog(entry);
+      await store.write(entry);
     } catch (error) {
       addAudit("Audit log failed", getErrorMessage(error, "Unable to write SharePoint audit log."), "Failed");
     }
