@@ -52,7 +52,7 @@ export type PermissionEntry = {
   type: PermissionSubjectType;
   role: AccessRole;
   source: "direct" | "group" | "link" | "inherited";
-  tenant: "baht.net" | "external";
+  tenant: "internal" | "external";
   lastActivity: string;
   canEditRole?: boolean;
   canDelete?: boolean;
@@ -64,4 +64,47 @@ export type AuditEntry = {
   action: string;
   target: string;
   time: string;
+};
+
+export type UserSuggestion = {
+  id: string;
+  displayName: string;
+  email: string;
+  jobTitle?: string;
+};
+
+export type ReportSiteSummary = {
+  siteId: string;
+  siteName: string;
+  hostname: string;
+  libraryCount: number;
+  protectedLibraryCount: number;
+  standardLibraryCount: number;
+  directPermissionCount: number;
+  externalPermissionCount: number;
+  inheritedPermissionCount: number;
+};
+
+export type ReportPermissionRow = {
+  id: string;
+  siteName: string;
+  libraryName: string;
+  principalName: string;
+  email: string;
+  role: AccessRole;
+  source: PermissionEntry["source"];
+  tenant: PermissionEntry["tenant"];
+};
+
+export type ReportSummary = {
+  generatedAt: string;
+  siteCount: number;
+  libraryCount: number;
+  protectedLibraryCount: number;
+  standardLibraryCount: number;
+  directPermissionCount: number;
+  externalPermissionCount: number;
+  inheritedPermissionCount: number;
+  sites: ReportSiteSummary[];
+  permissions: ReportPermissionRow[];
 };

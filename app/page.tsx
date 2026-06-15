@@ -4,15 +4,14 @@ import type { AccountInfo } from "@azure/msal-browser";
 import {
   ArrowLeft,
   ChevronRight,
-  Eye,
   File,
   FileLock2,
   Folder,
+  BarChart3,
   Home as HomeIcon,
   Library,
   LogIn,
   LogOut,
-  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -21,16 +20,25 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { acquireGraphToken, isAuthConfigured, signInMicrosoft365 } from "@/lib/auth";
-import { demoAudit, demoSites } from "@/lib/mock-data";
+import { isInternalEmail, tenantDomain } from "@/lib/app-config";
+import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
+import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
   GraphSharePointPermissionClient,
-  MockSharePointPermissionClient,
   type PermissionDraft,
   type SharePointPermissionClient,
 } from "@/lib/graph";
-import type { AccessRole, AuditEntry, ContentItem, PermissionEntry, SiteSummary } from "@/lib/types";
+import type {
+  AccessRole,
+  AuditEntry,
+  ContentItem,
+  PermissionEntry,
+  ReportSummary,
+  SiteSummary,
+  UserSuggestion,
+} from "@/lib/types";
 
 const roleLabels: Record<AccessRole, string> = {
   viewer: "Viewer",
@@ -38,35 +46,111 @@ const roleLabels: Record<AccessRole, string> = {
   owner: "Owner",
 };
 
-const roleDescriptions: Record<AccessRole, string> = {
-  viewer: "Read access through SharePoint. Rights Management still controls protected downloads.",
-  editor: "Read and write access through SharePoint.",
-  owner: "Full control. Review before assigning.",
+type AppHistoryView = {
+  selectedSite: SiteSummary | null;
+  path: ContentItem[];
+  selectedItem: ContentItem | null;
 };
+
+type AppHistoryState = {
+  spAccessView?: AppHistoryView;
+};
+
+type PortalView = "workspace" | "reports";
 
 export default function Home() {
   const [signedIn, setSignedIn] = useState(false);
-  const [mode, setMode] = useState<"demo" | "live">("demo");
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [accountLabel, setAccountLabel] = useState("Admin");
-  const [sites, setSites] = useState<SiteSummary[]>(demoSites);
+  const [roleLabel, setRoleLabel] = useState("No app role");
+  const [sites, setSites] = useState<SiteSummary[]>([]);
+  const [portalView, setPortalView] = useState<PortalView>("workspace");
   const [selectedSite, setSelectedSite] = useState<SiteSummary | null>(null);
   const [contents, setContents] = useState<ContentItem[]>([]);
   const [path, setPath] = useState<ContentItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [permissions, setPermissions] = useState<PermissionEntry[]>([]);
-  const [audit, setAudit] = useState<AuditEntry[]>(demoAudit);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [query, setQuery] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<AccessRole>("viewer");
+  const [userSuggestions, setUserSuggestions] = useState<UserSuggestion[]>([]);
+  const [suggestionError, setSuggestionError] = useState("");
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
+  const [reportError, setReportError] = useState("");
   const [authError, setAuthError] = useState("");
   const [dataError, setDataError] = useState("");
   const [loadingLabel, setLoadingLabel] = useState("");
+  const restoringHistoryRef = useRef(false);
 
   const graphClient = useMemo<SharePointPermissionClient>(() => {
-    if (!signedIn || !isAuthConfigured || mode !== "live") return new MockSharePointPermissionClient();
     return new GraphSharePointPermissionClient(() => acquireGraphToken(account));
-  }, [account, mode, signedIn]);
+  }, [account]);
+
+  const appRoles = useMemo(() => getAccountRoles(account), [account]);
+  const capabilities = useMemo(() => getCapabilities(appRoles), [appRoles]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+
+    replaceAppHistory(getHistoryView());
+
+    function handlePopState(event: PopStateEvent) {
+      const view = (event.state as AppHistoryState | null)?.spAccessView;
+      if (!view) return;
+
+      void restoreHistoryView(view);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+    // The handler intentionally restores through the latest Graph client after sign-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, graphClient]);
+
+  useEffect(() => {
+    if (!signedIn || !selectedItem) {
+      setUserSuggestions([]);
+      setSuggestionsLoading(false);
+      setSuggestionError("");
+      return;
+    }
+
+    const search = newEmail.trim();
+    if (search.length < 2) {
+      setUserSuggestions([]);
+      setSuggestionsLoading(false);
+      setSuggestionError("");
+      return;
+    }
+
+    let cancelled = false;
+    setSuggestionsLoading(true);
+    setSuggestionError("");
+
+    const timeout = window.setTimeout(() => {
+      void graphClient
+        .searchUsers(search)
+        .then((users) => {
+          if (!cancelled) setUserSuggestions(users);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setUserSuggestions([]);
+            setSuggestionError(error instanceof Error ? error.message : "Unable to search people.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSuggestionsLoading(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [graphClient, newEmail, selectedItem, signedIn]);
 
   const visibleContents = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -93,22 +177,26 @@ export default function Home() {
 
     try {
       if (!isAuthConfigured) {
-        setSignedIn(true);
-        setMode("demo");
-        setAccountLabel("Demo Admin");
-        setSites(demoSites);
+        setAuthError("Microsoft Entra configuration is missing. Set NEXT_PUBLIC_MSAL_CLIENT_ID and NEXT_PUBLIC_MSAL_TENANT_ID before signing in.");
         return;
       }
 
       const response = await signInMicrosoft365();
+      const nextRoles = getAccountRoles(response.account);
+      if (nextRoles.length === 0) {
+        setAuthError("Your account is signed in but has no app role assigned. Ask an administrator to assign Admin, InternalUser, GuestUser, or ExecutiveUser.");
+        return;
+      }
+
       const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(response.account));
       const nextSites = await nextClient.listSites();
 
       setSignedIn(true);
-      setMode("live");
       setAccount(response.account);
       setAccountLabel(response.account?.username ?? "Microsoft 365 Admin");
+      setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
       setSites(nextSites);
+      replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Unable to connect Microsoft 365.");
     } finally {
@@ -118,9 +206,10 @@ export default function Home() {
 
   function signOut() {
     setSignedIn(false);
-    setMode("demo");
     setAccount(null);
     setAccountLabel("Admin");
+    setRoleLabel("No app role");
+    setPortalView("workspace");
     setSelectedSite(null);
     setContents([]);
     setPath([]);
@@ -130,9 +219,49 @@ export default function Home() {
     setNewEmail("");
     setAuthError("");
     setDataError("");
+    setReportSummary(null);
+    setReportError("");
+    replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
   }
 
-  async function chooseSite(site: SiteSummary) {
+  function returnToSites() {
+    setPortalView("workspace");
+    setSelectedSite(null);
+    setContents([]);
+    setPath([]);
+    setSelectedItem(null);
+    setPermissions([]);
+    setQuery("");
+    setDataError("");
+    pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
+  }
+
+  async function openReports() {
+    if (!capabilities.canViewReports) return;
+
+    setPortalView("reports");
+    setSelectedSite(null);
+    setContents([]);
+    setPath([]);
+    setSelectedItem(null);
+    setPermissions([]);
+    setQuery("");
+    setDataError("");
+    setReportError("");
+    setLoadingLabel("Loading reports");
+
+    try {
+      setReportSummary(await graphClient.getReportSummary());
+    } catch (error) {
+      setReportSummary(null);
+      setReportError(error instanceof Error ? error.message : "Unable to load reports.");
+    } finally {
+      setLoadingLabel("");
+    }
+  }
+
+  async function chooseSite(site: SiteSummary, options: { updateHistory?: boolean } = {}) {
+    const updateHistory = options.updateHistory ?? true;
     setSelectedSite(site);
     setSelectedItem(null);
     setPath([]);
@@ -143,7 +272,10 @@ export default function Home() {
 
     try {
       const nextContents = await graphClient.listContentItems(site.id);
-      setContents(nextContents);
+      setContents(filterContentItemsForRoles(nextContents, appRoles));
+      if (updateHistory) {
+        pushAppHistory({ selectedSite: site, path: [], selectedItem: null });
+      }
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to load site contents.");
       setContents([]);
@@ -167,7 +299,9 @@ export default function Home() {
     try {
       const children = await graphClient.listChildren(item);
       setContents(children);
-      setPath((current) => [...current, item]);
+      const nextPath = [...path, item];
+      setPath(nextPath);
+      pushAppHistory({ selectedSite, path: nextPath, selectedItem: null });
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to open this item.");
     } finally {
@@ -178,6 +312,34 @@ export default function Home() {
   async function goToSiteRoot() {
     if (!selectedSite) return;
     await chooseSite(selectedSite);
+  }
+
+  async function goToPath(index: number) {
+    if (!selectedSite) return;
+
+    if (index < 0) {
+      await goToSiteRoot();
+      return;
+    }
+
+    const target = path[index];
+    if (!target) return;
+
+    setPath(path.slice(0, index + 1));
+    setSelectedItem(null);
+    setPermissions([]);
+    setQuery("");
+    setDataError("");
+    setLoadingLabel(`Opening ${target.name}`);
+
+    try {
+      setContents(await graphClient.listChildren(target));
+      pushAppHistory({ selectedSite, path: path.slice(0, index + 1), selectedItem: null });
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Unable to open this location.");
+    } finally {
+      setLoadingLabel("");
+    }
   }
 
   async function goBackOneLevel() {
@@ -196,6 +358,7 @@ export default function Home() {
     setLoadingLabel(`Opening ${parent.name}`);
     try {
       setContents(await graphClient.listChildren(parent));
+      pushAppHistory({ selectedSite, path: nextPath, selectedItem: null });
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to go back.");
     } finally {
@@ -203,7 +366,8 @@ export default function Home() {
     }
   }
 
-  async function manageAccess(item: ContentItem) {
+  async function manageAccess(item: ContentItem, options: { updateHistory?: boolean } = {}) {
+    const updateHistory = options.updateHistory ?? true;
     setSelectedItem(item);
     setQuery("");
     setDataError("");
@@ -212,6 +376,9 @@ export default function Home() {
     try {
       const nextPermissions = await graphClient.listPermissions(item.id);
       setPermissions(normalizeSharePointPrincipals(nextPermissions, selectedSite?.name ?? "Site"));
+      if (selectedSite && updateHistory) {
+        pushAppHistory({ selectedSite, path, selectedItem: item });
+      }
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to load permissions.");
       setPermissions([]);
@@ -222,12 +389,12 @@ export default function Home() {
 
   async function refreshCurrentView() {
     if (selectedItem) {
-      await manageAccess(selectedItem);
+      await manageAccess(selectedItem, { updateHistory: false });
       return;
     }
 
     if (path.length === 0) {
-      if (selectedSite) await chooseSite(selectedSite);
+      if (selectedSite) await chooseSite(selectedSite, { updateHistory: false });
       return;
     }
 
@@ -241,6 +408,15 @@ export default function Home() {
       } finally {
         setLoadingLabel("");
       }
+    }
+  }
+
+  function leaveAccessPanel() {
+    setSelectedItem(null);
+    setPermissions([]);
+    setQuery("");
+    if (selectedSite) {
+      pushAppHistory({ selectedSite, path, selectedItem: null });
     }
   }
 
@@ -258,32 +434,12 @@ export default function Home() {
     setLoadingLabel("Granting permission");
 
     try {
-      if (mode === "live" && graphClient.grantPermission) {
-        const created = await graphClient.grantPermission(selectedItem, draft);
-        setPermissions((current) => [...created, ...current]);
-      } else {
-        setPermissions((current) => [
-          {
-            id: `perm-${Date.now()}`,
-            libraryId: selectedItem.id,
-            driveId: selectedItem.driveId,
-            itemId: selectedItem.itemId,
-            displayName: draft.email.split("@")[0],
-            email: draft.email,
-            type: "user",
-            role: draft.role,
-            source: "direct",
-            tenant: draft.email.endsWith("@baht.net") ? "baht.net" : "external",
-            lastActivity: "Just granted",
-            canEditRole: true,
-            canDelete: true,
-          },
-          ...current,
-        ]);
-      }
+      const created = await graphClient.grantPermission(selectedItem, draft);
+      setPermissions((current) => [...created, ...current]);
 
       addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email);
       setNewEmail("");
+      setUserSuggestions([]);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to grant permission.");
     } finally {
@@ -299,18 +455,10 @@ export default function Home() {
     setLoadingLabel("Updating role");
 
     try {
-      if (mode === "live" && graphClient.updatePermissionRole) {
-        const updated = await graphClient.updatePermissionRole(changed, role);
-        setPermissions((current) =>
-          current.map((permission) => (permission.id === permissionId ? updated : permission)),
-        );
-      } else {
-        setPermissions((current) =>
-          current.map((permission) =>
-            permission.id === permissionId ? { ...permission, role, lastActivity: "Role updated" } : permission,
-          ),
-        );
-      }
+      const updated = await graphClient.updatePermissionRole(changed, role);
+      setPermissions((current) =>
+        current.map((permission) => (permission.id === permissionId ? updated : permission)),
+      );
       addAudit(`Changed role to ${roleLabels[role]}`, changed.email);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : "Unable to update role.");
@@ -327,9 +475,7 @@ export default function Home() {
     setLoadingLabel("Removing permission");
 
     try {
-      if (mode === "live" && graphClient.removePermission) {
-        await graphClient.removePermission(removed);
-      }
+      await graphClient.removePermission(removed);
       setPermissions((current) => current.filter((permission) => permission.id !== permissionId));
       addAudit("Removed permission", removed.email);
     } catch (error) {
@@ -343,13 +489,78 @@ export default function Home() {
     setAudit((current) => [
       {
         id: `audit-${Date.now()}`,
-        actor: mode === "live" ? accountLabel : "Admin",
+        actor: accountLabel,
         action,
         target,
         time: "Just now",
       },
       ...current,
     ]);
+  }
+
+  function selectUserSuggestion(user: UserSuggestion) {
+    setNewEmail(user.email);
+    setUserSuggestions([]);
+    setSuggestionError("");
+  }
+
+  function getHistoryView(): AppHistoryView {
+    return { selectedSite, path, selectedItem };
+  }
+
+  function pushAppHistory(view: AppHistoryView) {
+    if (restoringHistoryRef.current) return;
+    window.history.pushState({ spAccessView: view } satisfies AppHistoryState, "", window.location.href);
+  }
+
+  function replaceAppHistory(view: AppHistoryView) {
+    if (typeof window === "undefined") return;
+    window.history.replaceState({ spAccessView: view } satisfies AppHistoryState, "", window.location.href);
+  }
+
+  async function restoreHistoryView(view: AppHistoryView) {
+    restoringHistoryRef.current = true;
+    setDataError("");
+    setQuery("");
+    setSelectedSite(view.selectedSite);
+    setPath(view.path);
+    setSelectedItem(view.selectedItem);
+    setPermissions([]);
+
+    if (!view.selectedSite) {
+      setContents([]);
+      setLoadingLabel("");
+      restoringHistoryRef.current = false;
+      return;
+    }
+
+    setLoadingLabel(view.selectedItem ? "Loading permissions" : "Loading site contents");
+
+    try {
+      const nextContents = await loadContentsForHistoryView(view.selectedSite, view.path);
+      setContents(nextContents);
+
+      if (view.selectedItem) {
+        const nextPermissions = await graphClient.listPermissions(view.selectedItem.id);
+        setPermissions(normalizeSharePointPrincipals(nextPermissions, view.selectedSite.name));
+      }
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Unable to restore the previous view.");
+      setContents([]);
+      setPermissions([]);
+    } finally {
+      setLoadingLabel("");
+      restoringHistoryRef.current = false;
+    }
+  }
+
+  async function loadContentsForHistoryView(site: SiteSummary, nextPath: ContentItem[]) {
+    const currentFolder = nextPath.at(-1);
+    if (currentFolder) {
+      return graphClient.listChildren(currentFolder);
+    }
+    const rootContents = await graphClient.listContentItems(site.id);
+    return filterContentItemsForRoles(rootContents, appRoles);
   }
 
   if (!signedIn) {
@@ -381,7 +592,7 @@ export default function Home() {
 
           <div className="auth-meta">
             <span className={`status-dot ${isAuthConfigured ? "live" : ""}`} />
-            <span>{isAuthConfigured ? "Entra app configured" : "Demo mode available"}</span>
+            <span>{isAuthConfigured ? "Entra app configured" : "Entra app not configured"}</span>
           </div>
         </section>
       </main>
@@ -403,23 +614,22 @@ export default function Home() {
 
         <nav className="sidebar-nav">
           <button
-            className={`sidebar-nav-item ${!selectedSite ? "active" : ""}`}
-            onClick={() => {
-              setSelectedSite(null);
-              setSelectedItem(null);
-              setPath([]);
-              setContents([]);
-              setPermissions([]);
-              setQuery("");
-            }}
+            className={`sidebar-nav-item ${portalView === "workspace" && !selectedSite ? "active" : ""}`}
+            onClick={returnToSites}
           >
             <HomeIcon size={18} />
             Sites
           </button>
-          <button className={`sidebar-nav-item ${selectedSite ? "active" : ""}`} disabled={!selectedSite}>
+          <button className={`sidebar-nav-item ${portalView === "workspace" && selectedSite ? "active" : ""}`} disabled={!selectedSite}>
             <Library size={18} />
             Site contents
           </button>
+          {capabilities.canViewReports && (
+            <button className={`sidebar-nav-item ${portalView === "reports" ? "active" : ""}`} onClick={openReports}>
+              <BarChart3 size={18} />
+              Reports
+            </button>
+          )}
         </nav>
 
         <section className="workspace-card">
@@ -436,15 +646,18 @@ export default function Home() {
             <span>
               {selectedItem
                 ? `Managing access: ${selectedItem.name}`
-                : selectedSite
+                : portalView === "reports"
+                  ? "Reports"
+                  : selectedSite
                   ? `Browsing: ${selectedSite.name}`
                   : "Select a SharePoint site"}
             </span>
           </div>
 
           <div className="user-cluster">
-            <span className={`status-dot ${mode}`} />
-            <span>{mode === "live" ? "Live Graph" : "Demo"}</span>
+            <span className="status-dot live" />
+            <span>Live Graph</span>
+            <span className={`role-pill ${capabilities.isReadOnly ? "readonly" : ""}`}>{roleLabel}</span>
             <button className="avatar-button" title={accountLabel}>
               {accountLabel.charAt(0).toUpperCase()}
             </button>
@@ -457,7 +670,14 @@ export default function Home() {
         <div className="portal-content">
           {dataError && <div className="auth-error">{dataError}</div>}
 
-          {!selectedSite ? (
+          {portalView === "reports" ? (
+            <ReportsPanel
+              loadingLabel={loadingLabel}
+              report={reportSummary}
+              reportError={reportError}
+              onRefresh={openReports}
+            />
+          ) : !selectedSite ? (
             <SitePicker sites={sites} onSelect={chooseSite} loadingLabel={loadingLabel} />
           ) : selectedItem ? (
             <AccessPanel
@@ -466,15 +686,17 @@ export default function Home() {
               query={query}
               newEmail={newEmail}
               newRole={newRole}
+              userSuggestions={userSuggestions}
+              suggestionsLoading={suggestionsLoading}
+              suggestionError={suggestionError}
+              canManagePermissions={capabilities.canManagePermissions}
               loadingLabel={loadingLabel}
-              onBack={() => {
-                setSelectedItem(null);
-                setPermissions([]);
-                setQuery("");
-              }}
+              backLabel={path.at(-1)?.name ?? `${selectedSite.name} contents`}
+              onBack={leaveAccessPanel}
               onRefresh={refreshCurrentView}
               onQueryChange={setQuery}
               onEmailChange={setNewEmail}
+              onSelectUserSuggestion={selectUserSuggestion}
               onRoleChange={setNewRole}
               onGrant={addPermission}
               onUpdateRole={updateRole}
@@ -492,7 +714,9 @@ export default function Home() {
               onOpen={openItem}
               onManage={manageAccess}
               onRoot={goToSiteRoot}
+              onCrumb={goToPath}
               onBack={goBackOneLevel}
+              onSites={returnToSites}
               onRefresh={refreshCurrentView}
             />
           )}
@@ -552,8 +776,156 @@ function SitePicker({
         ))}
       </div>
 
+      {sites.length === 0 && !loadingLabel && (
+        <div className="empty-row site-empty-state">
+          No SharePoint sites are configured for this app.
+        </div>
+      )}
+
       {loadingLabel && <div className="loading-note">{loadingLabel}</div>}
     </section>
+  );
+}
+
+function ReportsPanel({
+  report,
+  reportError,
+  loadingLabel,
+  onRefresh,
+}: {
+  report: ReportSummary | null;
+  reportError: string;
+  loadingLabel: string;
+  onRefresh: () => void;
+}) {
+  const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
+
+  return (
+    <section className="page-section">
+      <div className="page-header with-actions">
+        <div>
+          <p className="section-label">Executive Report</p>
+          <h1>Permission Overview</h1>
+          <p>Read-only summary across configured SharePoint sites.</p>
+        </div>
+        <button className="secondary-button" onClick={onRefresh}>
+          <RefreshCw size={17} />
+          Refresh report
+        </button>
+      </div>
+
+      {reportError && <div className="auth-error">{reportError}</div>}
+      {loadingLabel === "Loading reports" && <div className="loading-note">Loading reports</div>}
+
+      {report && (
+        <>
+          <div className="report-meta">
+            <span>Generated</span>
+            <strong>{generatedAt}</strong>
+          </div>
+
+          <div className="report-metrics">
+            <ReportMetric label="Sites" value={report.siteCount} />
+            <ReportMetric label="Libraries" value={report.libraryCount} />
+            <ReportMetric label="Protected" value={report.protectedLibraryCount} />
+            <ReportMetric label="Standard" value={report.standardLibraryCount} />
+            <ReportMetric label="Editable access" value={report.directPermissionCount} />
+            <ReportMetric label="External access" value={report.externalPermissionCount} tone="risk" />
+            <ReportMetric label="Inherited" value={report.inheritedPermissionCount} />
+            <ReportMetric label="Permission rows" value={report.permissions.length} />
+          </div>
+
+          <div className="permission-section-title">
+            <div>
+              <p className="section-label">Permission Inventory</p>
+              <h2>Who has access</h2>
+            </div>
+            <span>{report.permissions.length}</span>
+          </div>
+
+          <div className="report-permission-table" role="table" aria-label="Permission inventory">
+            <div className="report-permission-head" role="row">
+              <span>Principal</span>
+              <span>Role</span>
+              <span>Source</span>
+              <span>Scope</span>
+              <span>Tenant</span>
+            </div>
+            {report.permissions.map((permission) => (
+              <div className="report-permission-row" role="row" key={permission.id}>
+                <div>
+                  <strong>{permission.principalName}</strong>
+                  <small>{permission.email}</small>
+                </div>
+                <span className={`role-chip ${permission.role}`}>{roleLabels[permission.role]}</span>
+                <span>{permission.source}</span>
+                <div>
+                  <strong>{permission.libraryName}</strong>
+                  <small>{permission.siteName}</small>
+                </div>
+                <span className={permission.tenant === "external" ? "risk-text" : ""}>{permission.tenant}</span>
+              </div>
+            ))}
+            {report.permissions.length === 0 && (
+              <div className="empty-row">No permissions found in configured library roots.</div>
+            )}
+          </div>
+
+          <div className="permission-section-title">
+            <div>
+              <p className="section-label">Site Summary</p>
+              <h2>Coverage by site</h2>
+            </div>
+            <span>{report.sites.length}</span>
+          </div>
+
+          <div className="report-table" role="table" aria-label="Site report">
+            <div className="report-table-head" role="row">
+              <span>Site</span>
+              <span>Libraries</span>
+              <span>Protected</span>
+              <span>Direct</span>
+              <span>External</span>
+              <span>Inherited</span>
+            </div>
+            {report.sites.map((site) => (
+              <div className="report-table-row" role="row" key={site.siteId}>
+                <div>
+                  <strong>{site.siteName}</strong>
+                  <small>{site.hostname}</small>
+                </div>
+                <span>{site.libraryCount}</span>
+                <span>{site.protectedLibraryCount}</span>
+                <span>{site.directPermissionCount}</span>
+                <span className={site.externalPermissionCount > 0 ? "risk-text" : ""}>{site.externalPermissionCount}</span>
+                <span>{site.inheritedPermissionCount}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!report && !reportError && loadingLabel !== "Loading reports" && (
+        <div className="empty-row site-empty-state">No report data loaded.</div>
+      )}
+    </section>
+  );
+}
+
+function ReportMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "risk";
+}) {
+  return (
+    <div className={`report-metric ${tone ?? ""}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -568,7 +940,9 @@ function ContentExplorer({
   onOpen,
   onManage,
   onRoot,
+  onCrumb,
   onBack,
+  onSites,
   onRefresh,
 }: {
   site: SiteSummary;
@@ -581,7 +955,9 @@ function ContentExplorer({
   onOpen: (item: ContentItem) => void;
   onManage: (item: ContentItem) => void;
   onRoot: () => void;
+  onCrumb: (index: number) => void;
   onBack: () => void;
+  onSites: () => void;
   onRefresh: () => void;
 }) {
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
@@ -604,23 +980,27 @@ function ContentExplorer({
 
       <div className="explorer-bar">
         <div className="breadcrumbs">
-          <button onClick={onRoot}>
+          <button onClick={onSites}>
             <HomeIcon size={14} />
+            Sites
+          </button>
+          <ChevronRight size={14} />
+          <button onClick={onRoot}>
             Site contents
           </button>
-          {path.map((node) => (
-            <span key={node.id}>
+          {path.map((node, index) => (
+            <span className="breadcrumb-step" key={node.id}>
               <ChevronRight size={14} />
-              <strong>{node.name}</strong>
+              <button className="breadcrumb-node" onClick={() => onCrumb(index)}>
+                <strong>{node.name}</strong>
+              </button>
             </span>
           ))}
         </div>
-        {path.length > 0 && (
-          <button className="secondary-button" onClick={onBack}>
-            <ArrowLeft size={16} />
-            Back
-          </button>
-        )}
+        <button className="secondary-button" onClick={path.length > 0 ? onBack : onSites}>
+          <ArrowLeft size={16} />
+          {path.length > 0 ? "Up one level" : "All sites"}
+        </button>
       </div>
 
       <div className="toolbar">
@@ -662,9 +1042,11 @@ function ContentExplorer({
                   <small>{formatItemMeta(item)}</small>
                 </span>
               </button>
-              <span className="muted">{item.type}</span>
-              <span className={`policy-badge ${item.protected ? "protected" : ""}`}>{item.rightsPolicy}</span>
-              <span className="muted">{item.modified ?? "Live Graph"}</span>
+              <span className="muted" data-label="Type">{item.type}</span>
+              <span className={`policy-badge ${item.protected ? "protected" : ""}`} data-label="Protection">
+                {item.rightsPolicy}
+              </span>
+              <span className="muted" data-label="Modified">{item.modified ?? "Live Graph"}</span>
             </div>
           ))}
           {contents.length === 0 && <div className="empty-row">{loadingLabel || "No items found."}</div>}
@@ -741,11 +1123,17 @@ function AccessPanel({
   query,
   newEmail,
   newRole,
+  userSuggestions,
+  suggestionsLoading,
+  suggestionError,
+  canManagePermissions,
   loadingLabel,
+  backLabel,
   onBack,
   onRefresh,
   onQueryChange,
   onEmailChange,
+  onSelectUserSuggestion,
   onRoleChange,
   onGrant,
   onUpdateRole,
@@ -756,16 +1144,23 @@ function AccessPanel({
   query: string;
   newEmail: string;
   newRole: AccessRole;
+  userSuggestions: UserSuggestion[];
+  suggestionsLoading: boolean;
+  suggestionError: string;
+  canManagePermissions: boolean;
   loadingLabel: string;
+  backLabel: string;
   onBack: () => void;
   onRefresh: () => void;
   onQueryChange: (value: string) => void;
   onEmailChange: (value: string) => void;
+  onSelectUserSuggestion: (user: UserSuggestion) => void;
   onRoleChange: (value: AccessRole) => void;
   onGrant: (event: FormEvent<HTMLFormElement>) => void;
   onUpdateRole: (permissionId: string, role: AccessRole) => void;
   onRemove: (permissionId: string) => void;
 }) {
+  const externalGrantTarget = newEmail.includes("@") && !isInternalEmail(newEmail);
   const lockedCount = permissions.filter(
     (permission) => permission.canEditRole === false || permission.canDelete === false || permission.role === "owner",
   ).length;
@@ -788,7 +1183,7 @@ function AccessPanel({
         <div className="header-actions">
           <button className="secondary-button" onClick={onBack}>
             <ArrowLeft size={16} />
-            Back
+            Back to {backLabel}
           </button>
           <button className="icon-button" title="Refresh permissions" onClick={onRefresh}>
             <RefreshCw size={17} />
@@ -832,6 +1227,13 @@ function AccessPanel({
         </div>
       )}
 
+      {!canManagePermissions && (
+        <div className="info-message readonly-message">
+          <ShieldCheck size={18} />
+          <span>Your app role is read-only here. You can review permissions, but only Admin can grant, change, or remove access.</span>
+        </div>
+      )}
+
       <div className="toolbar">
         <label className="search-box">
           <Search size={17} />
@@ -844,32 +1246,71 @@ function AccessPanel({
         </label>
       </div>
 
-      <form className="grant-panel" onSubmit={onGrant}>
-        <div className="grant-title">
-          <strong>Grant direct access</strong>
-          <span>Use this for individual users or groups who need access to this item.</span>
-        </div>
-        <label>
-          <span>User email</span>
-          <input
-            onChange={(event) => onEmailChange(event.target.value)}
-            placeholder="name@baht.net"
-            type="email"
-            value={newEmail}
-          />
-        </label>
-        <label>
-          <span>Role</span>
-          <select onChange={(event) => onRoleChange(event.target.value as AccessRole)} value={newRole}>
-            <option value="viewer">Viewer</option>
-            <option value="editor">Editor</option>
-          </select>
-        </label>
-        <button className="primary-button" type="submit">
-          <Plus size={18} />
-          {loadingLabel === "Granting permission" ? "Granting" : "Grant"}
-        </button>
-      </form>
+      {canManagePermissions && (
+        <form className="grant-panel" onSubmit={onGrant}>
+          <div className="grant-title">
+            <strong>Grant direct access</strong>
+            <span>Use this for individual users or groups who need access to this item.</span>
+          </div>
+          <label className="people-picker-field">
+            <span>User email</span>
+            <input
+              onChange={(event) => onEmailChange(event.target.value)}
+              placeholder={`name@${tenantDomain}`}
+              type="email"
+              value={newEmail}
+            />
+            {(suggestionsLoading || suggestionError || userSuggestions.length > 0) && (
+              <div className="people-suggestions" role="listbox" aria-label="People suggestions">
+                {suggestionsLoading && <div className="people-suggestion-status">Searching people</div>}
+                {!suggestionsLoading && suggestionError && (
+                  <div className="people-suggestion-status error">{suggestionError}</div>
+                )}
+                {!suggestionsLoading &&
+                  !suggestionError &&
+                  userSuggestions.map((user) => (
+                    <button
+                      className="people-suggestion"
+                      key={user.id}
+                      type="button"
+                      role="option"
+                      aria-selected={newEmail === user.email}
+                      onClick={() => onSelectUserSuggestion(user)}
+                    >
+                      <span className="avatar small">
+                        <UserRound size={15} />
+                      </span>
+                      <span>
+                        <strong>{user.displayName}</strong>
+                        <small>{user.email}</small>
+                        {user.jobTitle && <small>{user.jobTitle}</small>}
+                      </span>
+                    </button>
+                  ))}
+                {!suggestionsLoading && !suggestionError && userSuggestions.length === 0 && (
+                  <div className="people-suggestion-status">No matching people found</div>
+                )}
+              </div>
+            )}
+            {externalGrantTarget && (
+              <small className="field-hint">
+                External recipient. This app grants direct access without sending an invitation email.
+              </small>
+            )}
+          </label>
+          <label>
+            <span>Role</span>
+            <select onChange={(event) => onRoleChange(event.target.value as AccessRole)} value={newRole}>
+              <option value="viewer">Viewer</option>
+              <option value="editor">Editor</option>
+            </select>
+          </label>
+          <button className="primary-button" type="submit">
+            <Plus size={18} />
+            {loadingLabel === "Granting permission" ? "Granting" : "Grant"}
+          </button>
+        </form>
+      )}
 
       <div className="permission-section-title">
         <div>
@@ -882,6 +1323,7 @@ function AccessPanel({
       <PermissionTable
         permissions={directPermissions}
         emptyText={loadingLabel || "No direct permissions found."}
+        canManagePermissions={canManagePermissions}
         onUpdateRole={onUpdateRole}
         onRemove={onRemove}
       />
@@ -898,6 +1340,7 @@ function AccessPanel({
           <PermissionTable
             permissions={managedPermissions}
             emptyText=""
+            canManagePermissions={canManagePermissions}
             onUpdateRole={onUpdateRole}
             onRemove={onRemove}
           />
@@ -910,11 +1353,13 @@ function AccessPanel({
 function PermissionTable({
   permissions,
   emptyText,
+  canManagePermissions,
   onUpdateRole,
   onRemove,
 }: {
   permissions: PermissionEntry[];
   emptyText: string;
+  canManagePermissions: boolean;
   onUpdateRole: (permissionId: string, role: AccessRole) => void;
   onRemove: (permissionId: string) => void;
 }) {
@@ -925,7 +1370,7 @@ function PermissionTable({
         <span>Role</span>
         <span>Source</span>
         <span>Activity</span>
-        <span>Actions</span>
+        <span>Remove</span>
       </div>
       {permissions.map((permission) => (
         <div className="table-row" role="row" key={permission.id}>
@@ -941,7 +1386,7 @@ function PermissionTable({
           <select
             aria-label={`Role for ${permission.displayName}`}
             className={`role-select ${permission.role}`}
-            disabled={permission.role === "owner" || permission.canEditRole === false}
+            disabled={!canManagePermissions || permission.role === "owner" || permission.canEditRole === false}
             onChange={(event) => onUpdateRole(permission.id, event.target.value as AccessRole)}
             value={permission.role}
           >
@@ -949,41 +1394,23 @@ function PermissionTable({
             <option value="editor">{roleLabels.editor}</option>
             <option value="owner">{roleLabels.owner}</option>
           </select>
-          <span className="muted">{permission.source}</span>
-          <span className="muted">{permission.lastActivity}</span>
-          <div className="row-actions">
-            {permission.canEditRole === false && permission.canDelete === false ? (
+          <span className="muted" data-label="Source">{permission.source}</span>
+          <span className="muted" data-label="Activity">{permission.lastActivity}</span>
+          <div className="row-actions" data-label="Remove">
+            {!canManagePermissions ? (
+              <span className="locked-badge">Read-only</span>
+            ) : permission.canDelete === false ? (
               <span className="locked-badge">{permission.source === "inherited" ? "Inherited" : "Managed"}</span>
             ) : (
-              <>
-                <button
-                  className="mini-button"
-                  disabled={permission.canEditRole === false}
-                  title={roleDescriptions.viewer}
-                  type="button"
-                  onClick={() => onUpdateRole(permission.id, "viewer")}
-                >
-                  <Eye size={16} />
-                </button>
-                <button
-                  className="mini-button"
-                  disabled={permission.canEditRole === false}
-                  title={roleDescriptions.editor}
-                  type="button"
-                  onClick={() => onUpdateRole(permission.id, "editor")}
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  className="mini-button danger"
-                  disabled={permission.canDelete === false}
-                  title={permission.canDelete === false ? "Inherited permission cannot be removed here" : "Remove permission"}
-                  type="button"
-                  onClick={() => onRemove(permission.id)}
-                >
-                  <Trash2 size={16} />
-                </button>
-              </>
+              <button
+                className="remove-access-button"
+                title="Remove this direct permission"
+                type="button"
+                onClick={() => onRemove(permission.id)}
+              >
+                <Trash2 size={15} />
+                Remove access
+              </button>
             )}
           </div>
         </div>
@@ -1022,70 +1449,3 @@ function getInitials(label: string) {
     .toUpperCase();
 }
 
-function normalizeSharePointPrincipals(permissions: PermissionEntry[], siteName: string) {
-  return permissions.map((permission) => {
-    if (!isOpaqueSharePointPrincipal(permission.displayName)) {
-      if (isDefaultSharePointGroup(permission, siteName)) {
-        return {
-          ...permission,
-          lastActivity: permission.source === "inherited" ? "Inherited from parent" : "System-managed SharePoint group",
-          canEditRole: false,
-          canDelete: false,
-        };
-      }
-
-      return permission;
-    }
-
-    const decoded = decodeSharePointPrincipal(permission.displayName);
-    const principalId = decoded?.split("_").at(-1);
-    const groupLabel = getDefaultSharePointGroupName(permission.role, principalId);
-
-    return {
-      ...permission,
-      displayName: `${siteName} ${groupLabel}`,
-      email: principalId ? `Inherited SharePoint group · Principal ${principalId}` : "Inherited SharePoint group",
-      type: "group" as const,
-      source: "inherited" as const,
-      lastActivity: "Inherited from parent",
-      canEditRole: false,
-      canDelete: false,
-    };
-  });
-}
-
-function isDefaultSharePointGroup(permission: PermissionEntry, siteName: string) {
-  if (permission.type !== "group") return false;
-  const normalizedName = permission.displayName.toLowerCase();
-  const normalizedSite = siteName.toLowerCase();
-  return (
-    normalizedName === `${normalizedSite} owners` ||
-    normalizedName === `${normalizedSite} members` ||
-    normalizedName === `${normalizedSite} visitors`
-  );
-}
-
-function isOpaqueSharePointPrincipal(value: string) {
-  if (value.length < 28 || /\s/.test(value)) return false;
-  return /^[A-Za-z0-9_-]+={0,2}$/.test(value);
-}
-
-function decodeSharePointPrincipal(value: string) {
-  try {
-    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const decoded = atob(padded).replace(/[^\x20-\x7E_:-]/g, "");
-    return decoded.includes("_") ? decoded : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function getDefaultSharePointGroupName(role: AccessRole, principalId?: string) {
-  if (principalId === "3") return "Owners";
-  if (principalId === "4") return "Visitors";
-  if (principalId === "5") return "Members";
-  if (role === "owner") return "Owners";
-  if (role === "editor") return "Members";
-  return "Visitors";
-}

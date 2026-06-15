@@ -15,7 +15,7 @@ export const isAuthConfigured = Boolean(clientId);
 
 export const msalConfig: Configuration = {
   auth: {
-    clientId: clientId ?? "demo-client-id",
+    clientId: clientId ?? "",
     authority: `https://login.microsoftonline.com/${tenantId}`,
     redirectUri: typeof window === "undefined" ? undefined : window.location.origin,
   },
