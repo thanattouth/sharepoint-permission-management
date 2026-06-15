@@ -1041,8 +1041,11 @@ function ReportsPanel({
   loadingLabel: string;
   onRefresh: () => void;
 }) {
+  const [showAllPermissions, setShowAllPermissions] = useState(false);
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
   const isLoadingReport = loadingLabel === "Loading reports";
+  const visibleReportPermissions = showAllPermissions ? report?.permissions ?? [] : report?.permissions.slice(0, 8) ?? [];
+  const hiddenPermissionCount = Math.max((report?.permissions.length ?? 0) - visibleReportPermissions.length, 0);
 
   return (
     <section className="page-section">
@@ -1084,7 +1087,14 @@ function ReportsPanel({
               <p className="section-label">Permission Inventory</p>
               <h2>Who has access</h2>
             </div>
-            <span>{report.permissions.length}</span>
+            <div className="section-title-actions">
+              <span>{report.permissions.length}</span>
+              {report.permissions.length > 8 && (
+                <button className="text-button" type="button" onClick={() => setShowAllPermissions((current) => !current)}>
+                  {showAllPermissions ? "Show less" : "See all"}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="report-permission-table" role="table" aria-label="Permission inventory">
@@ -1095,7 +1105,7 @@ function ReportsPanel({
               <span>Scope</span>
               <span>Tenant</span>
             </div>
-            {report.permissions.map((permission) => (
+            {visibleReportPermissions.map((permission) => (
               <div className="report-permission-row" role="row" key={permission.id}>
                 <div>
                   <strong>{permission.principalName}</strong>
@@ -1114,6 +1124,11 @@ function ReportsPanel({
               <div className="empty-row">No permissions found in configured library roots.</div>
             )}
           </div>
+          {hiddenPermissionCount > 0 && (
+            <p className="table-footnote">
+              Showing {visibleReportPermissions.length} of {report.permissions.length}. Use See all for the full inventory.
+            </p>
+          )}
 
           <div className="permission-section-title">
             <div>
@@ -1344,9 +1359,12 @@ function ContentExplorer({
           )}
 
           <div className="recent-compact">
-            <p className="section-label">Recent Changes</p>
+            <div className="recent-heading">
+              <p className="section-label">Recent Changes</p>
+              {audit.length > 2 && <span>{audit.length - 2} more</span>}
+            </div>
             <div className="audit-list">
-              {audit.slice(0, 3).map((entry) => (
+              {audit.slice(0, 2).map((entry) => (
                 <article className={`audit-item ${entry.status === "Failed" ? "failed" : ""}`} key={entry.id}>
                   <span className="audit-dot" />
                   <div>

@@ -1305,6 +1305,12 @@ h2 {
   margin: 22px 0 10px;
 }
 
+.section-title-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .permission-section-title span {
   align-items: center;
   background: var(--blue-soft);
@@ -1320,6 +1326,27 @@ h2 {
 .permission-section-title.muted-title span {
   background: #f3f4f5;
   color: var(--muted);
+}
+
+.text-button {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 700;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.text-button:hover {
+  background: var(--blue-soft);
+}
+
+.table-footnote {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 10px 2px 0;
 }
 
 .grant-panel label {
@@ -1750,6 +1777,23 @@ h2 {
 
 .audit-list {
   gap: 0;
+}
+
+.recent-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.recent-heading .section-label {
+  margin-bottom: 0;
+}
+
+.recent-heading span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .audit-item {
