@@ -33,6 +33,8 @@ import {
 import type {
   AccessRole,
   AuditEntry,
+  AuditLogAction,
+  AuditLogStatus,
   ContentItem,
   PermissionEntry,
   ReportSummary,
@@ -190,6 +192,13 @@ export default function Home() {
 
       const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(response.account));
       const nextSites = await nextClient.listSites();
+      void writeAuditWithClient(nextClient, {
+        action: "Login",
+        status: "Success",
+        actorEmail: response.account?.username ?? "Unknown",
+        actorName: response.account?.name ?? response.account?.username ?? "Microsoft 365 user",
+        actorRole: getRoleLabel(getPrimaryRole(nextRoles)),
+      });
 
       setSignedIn(true);
       setAccount(response.account);
@@ -252,9 +261,18 @@ export default function Home() {
 
     try {
       setReportSummary(await graphClient.getReportSummary());
+      void writeAudit({
+        action: "RefreshReport",
+        status: "Success",
+      });
     } catch (error) {
       setReportSummary(null);
       setReportError(error instanceof Error ? error.message : "Unable to load reports.");
+      void writeAudit({
+        action: "RefreshReport",
+        status: "Failed",
+        errorMessage: getErrorMessage(error),
+      });
     } finally {
       setLoadingLabel("");
     }
@@ -437,11 +455,31 @@ export default function Home() {
       const created = await graphClient.grantPermission(selectedItem, draft);
       setPermissions((current) => [...created, ...current]);
 
-      addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email);
+      addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email, "Success");
+      void writeAudit({
+        action: "GrantAccess",
+        status: "Success",
+        targetEmail: draft.email,
+        targetName: draft.displayName,
+        permissionRole: draft.role,
+        tenantType: isInternalEmail(draft.email) ? "internal" : "external",
+      });
       setNewEmail("");
       setUserSuggestions([]);
     } catch (error) {
-      setDataError(error instanceof Error ? error.message : "Unable to grant permission.");
+      const message = getErrorMessage(error, "Unable to grant permission.");
+      setDataError(message);
+      addAudit("Grant failed", draft.email, "Failed");
+      void writeAudit({
+        action: "GrantAccess",
+        status: "Failed",
+        targetEmail: draft.email,
+        targetName: draft.displayName,
+        permissionRole: draft.role,
+        tenantType: isInternalEmail(draft.email) ? "internal" : "external",
+        errorMessage: message,
+        graphRequestId: extractGraphRequestId(message),
+      });
     } finally {
       setLoadingLabel("");
     }
@@ -459,9 +497,33 @@ export default function Home() {
       setPermissions((current) =>
         current.map((permission) => (permission.id === permissionId ? updated : permission)),
       );
-      addAudit(`Changed role to ${roleLabels[role]}`, changed.email);
+      addAudit(`Changed role to ${roleLabels[role]}`, changed.email, "Success");
+      void writeAudit({
+        action: "UpdateRole",
+        status: "Success",
+        targetEmail: changed.email,
+        targetName: changed.displayName,
+        permissionRole: role,
+        previousRole: changed.role,
+        source: changed.source,
+        tenantType: changed.tenant,
+      });
     } catch (error) {
-      setDataError(error instanceof Error ? error.message : "Unable to update role.");
+      const message = getErrorMessage(error, "Unable to update role.");
+      setDataError(message);
+      addAudit("Role update failed", changed.email, "Failed");
+      void writeAudit({
+        action: "UpdateRole",
+        status: "Failed",
+        targetEmail: changed.email,
+        targetName: changed.displayName,
+        permissionRole: role,
+        previousRole: changed.role,
+        source: changed.source,
+        tenantType: changed.tenant,
+        errorMessage: message,
+        graphRequestId: extractGraphRequestId(message),
+      });
     } finally {
       setLoadingLabel("");
     }
@@ -477,15 +539,37 @@ export default function Home() {
     try {
       await graphClient.removePermission(removed);
       setPermissions((current) => current.filter((permission) => permission.id !== permissionId));
-      addAudit("Removed permission", removed.email);
+      addAudit("Removed permission", removed.email, "Success");
+      void writeAudit({
+        action: "RemoveAccess",
+        status: "Success",
+        targetEmail: removed.email,
+        targetName: removed.displayName,
+        permissionRole: removed.role,
+        source: removed.source,
+        tenantType: removed.tenant,
+      });
     } catch (error) {
-      setDataError(error instanceof Error ? error.message : "Unable to remove permission.");
+      const message = getErrorMessage(error, "Unable to remove permission.");
+      setDataError(message);
+      addAudit("Remove failed", removed.email, "Failed");
+      void writeAudit({
+        action: "RemoveAccess",
+        status: "Failed",
+        targetEmail: removed.email,
+        targetName: removed.displayName,
+        permissionRole: removed.role,
+        source: removed.source,
+        tenantType: removed.tenant,
+        errorMessage: message,
+        graphRequestId: extractGraphRequestId(message),
+      });
     } finally {
       setLoadingLabel("");
     }
   }
 
-  function addAudit(action: string, target: string) {
+  function addAudit(action: string, target: string, status: AuditLogStatus = "Success") {
     setAudit((current) => [
       {
         id: `audit-${Date.now()}`,
@@ -493,9 +577,41 @@ export default function Home() {
         action,
         target,
         time: "Just now",
+        status,
       },
       ...current,
     ]);
+  }
+
+  function writeAudit(entry: {
+    action: AuditLogAction;
+    status: AuditLogStatus;
+    targetEmail?: string;
+    targetName?: string;
+    permissionRole?: AccessRole;
+    previousRole?: AccessRole;
+    source?: PermissionEntry["source"];
+    tenantType?: PermissionEntry["tenant"];
+    errorMessage?: string;
+    graphRequestId?: string;
+  }) {
+    return writeAuditWithClient(graphClient, {
+      ...entry,
+      actorEmail: account?.username ?? accountLabel,
+      actorName: account?.name ?? accountLabel,
+      actorRole: roleLabel,
+      siteName: selectedSite?.name,
+      libraryName: selectedItem?.name ?? path.at(-1)?.name,
+      itemId: selectedItem?.itemId ?? selectedItem?.id,
+    });
+  }
+
+  async function writeAuditWithClient(client: SharePointPermissionClient, entry: Parameters<SharePointPermissionClient["writeAuditLog"]>[0]) {
+    try {
+      await client.writeAuditLog(entry);
+    } catch (error) {
+      addAudit("Audit log failed", getErrorMessage(error, "Unable to write SharePoint audit log."), "Failed");
+    }
   }
 
   function selectUserSuggestion(user: UserSuggestion) {
@@ -1098,7 +1214,7 @@ function ContentExplorer({
             <p className="section-label">Recent Changes</p>
             <div className="audit-list">
               {audit.slice(0, 3).map((entry) => (
-                <article className="audit-item" key={entry.id}>
+                <article className={`audit-item ${entry.status === "Failed" ? "failed" : ""}`} key={entry.id}>
                   <span className="audit-dot" />
                   <div>
                     <strong>{entry.action}</strong>
@@ -1447,5 +1563,13 @@ function getInitials(label: string) {
     .map((word) => word[0])
     .join("")
     .toUpperCase();
+}
+
+function getErrorMessage(error: unknown, fallback = "Unexpected error.") {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function extractGraphRequestId(message: string) {
+  return message.match(/Request ID:\s*([0-9a-f-]+)/i)?.[1];
 }
 

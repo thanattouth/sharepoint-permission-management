@@ -1655,6 +1655,14 @@ h2 {
   width: 8px;
 }
 
+.audit-item.failed .audit-dot {
+  background: #dc2626;
+}
+
+.audit-item.failed strong {
+  color: #b91c1c;
+}
+
 .audit-item p {
   color: var(--muted);
   font-size: 13px;

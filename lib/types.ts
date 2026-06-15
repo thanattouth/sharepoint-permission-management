@@ -64,6 +64,35 @@ export type AuditEntry = {
   action: string;
   target: string;
   time: string;
+  status?: "Success" | "Failed";
+};
+
+export type AuditLogAction =
+  | "GrantAccess"
+  | "UpdateRole"
+  | "RemoveAccess"
+  | "RefreshReport"
+  | "Login";
+
+export type AuditLogStatus = "Success" | "Failed";
+
+export type AuditLogDraft = {
+  action: AuditLogAction;
+  actorEmail: string;
+  actorName: string;
+  actorRole: string;
+  targetEmail?: string;
+  targetName?: string;
+  permissionRole?: AccessRole;
+  previousRole?: AccessRole;
+  siteName?: string;
+  libraryName?: string;
+  itemId?: string;
+  source?: PermissionEntry["source"];
+  tenantType?: PermissionEntry["tenant"];
+  status: AuditLogStatus;
+  errorMessage?: string;
+  graphRequestId?: string;
 };
 
 export type UserSuggestion = {

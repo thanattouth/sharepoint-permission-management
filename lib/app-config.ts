@@ -5,6 +5,7 @@ export type TargetSiteConfig = {
 
 const defaultTenantDomain = "baht.net";
 const defaultProtectedLibraries = ["Confidential", "Secret"];
+const defaultAuditListName = "PermissionAuditLog";
 const defaultTargetSites: TargetSiteConfig[] = [
   {
     hostname: "bahtnet.sharepoint.com",
@@ -28,6 +29,9 @@ export const protectedLibraryNames = new Set(
 );
 
 export const targetSites = parseTargetSites(process.env.NEXT_PUBLIC_TARGET_SITES) ?? defaultTargetSites;
+export const auditSite = parseSingleTargetSite(process.env.NEXT_PUBLIC_AUDIT_SITE) ?? targetSites[0];
+export const auditListName = process.env.NEXT_PUBLIC_AUDIT_LIST_NAME?.trim() || defaultAuditListName;
+export const auditLogEnabled = process.env.NEXT_PUBLIC_AUDIT_LOG_ENABLED !== "false";
 
 export function isInternalEmail(value: string) {
   const normalized = value.trim().toLowerCase();
@@ -66,4 +70,8 @@ function parseTargetSites(value: string | undefined): TargetSiteConfig[] | undef
     .filter((site): site is TargetSiteConfig => Boolean(site));
 
   return sites.length ? sites : undefined;
+}
+
+function parseSingleTargetSite(value: string | undefined) {
+  return parseTargetSites(value)?.[0];
 }

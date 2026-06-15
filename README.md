@@ -30,6 +30,9 @@ NEXT_PUBLIC_TENANT_DOMAIN=baht.net
 NEXT_PUBLIC_INTERNAL_DOMAINS=baht.net,bahtnet.onmicrosoft.com
 NEXT_PUBLIC_TARGET_SITES=bahtnet.sharepoint.com:/sites/DGCS,bahtnet.sharepoint.com:/sites/EngineerSite
 NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES=Confidential,Secret
+NEXT_PUBLIC_AUDIT_SITE=bahtnet.sharepoint.com:/sites/DGCS
+NEXT_PUBLIC_AUDIT_LIST_NAME=PermissionAuditLog
+NEXT_PUBLIC_AUDIT_LOG_ENABLED=true
 ```
 
 Initial Graph scopes are declared in `lib/graph.ts`:
@@ -43,6 +46,14 @@ Initial Graph scopes are declared in `lib/graph.ts`:
 `NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. For the demo role model, Internal User can browse configured sites but only sees standard/internal libraries.
 
 The configured sites are loaded from Microsoft Graph after sign-in, followed by drives, drive items, and permissions for the selected workspace.
+
+## Audit Log
+
+Permission changes are written to a SharePoint List so governance evidence stays in Microsoft 365. By default, the app uses the first configured site, or `NEXT_PUBLIC_AUDIT_SITE` when set, and writes to `PermissionAuditLog`.
+
+The app creates the list automatically on first write when the signed-in Admin has enough SharePoint/Graph permission. Logged events include login, report refresh, grant access, role update, remove access, success/failure status, actor, target, site/library, role, tenant type, error message, and Graph request id when available.
+
+Set `NEXT_PUBLIC_AUDIT_LOG_ENABLED=false` to disable SharePoint audit writes without removing the local recent-changes UI.
 
 ## Graph Integration
 

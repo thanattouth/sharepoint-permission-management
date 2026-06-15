@@ -1,5 +1,6 @@
 import type {
   AccessRole,
+  AuditLogDraft,
   ContentItem,
   LibrarySummary,
   PermissionEntry,
@@ -9,7 +10,7 @@ import type {
   SiteSummary,
   UserSuggestion,
 } from "./types";
-import { isInternalEmail, protectedLibraryNames, targetSites } from "./app-config";
+import { auditListName, auditLogEnabled, auditSite, isInternalEmail, protectedLibraryNames, targetSites } from "./app-config";
 import { normalizeSharePointPrincipals } from "./permission-normalization";
 
 export type PermissionDraft = {
@@ -29,6 +30,7 @@ export interface SharePointPermissionClient {
   removePermission(permission: PermissionEntry): Promise<void>;
   searchUsers(query: string): Promise<UserSuggestion[]>;
   getReportSummary(): Promise<ReportSummary>;
+  writeAuditLog(entry: AuditLogDraft): Promise<void>;
 }
 
 export const graphScopes = [
@@ -78,6 +80,15 @@ type GraphIdentity = {
   userPrincipalName?: string;
 };
 
+type GraphList = {
+  id: string;
+  displayName?: string;
+};
+
+type GraphListItem = {
+  id: string;
+};
+
 type GraphUser = {
   id: string;
   displayName?: string;
@@ -124,6 +135,8 @@ type GraphInviteError = {
 };
 
 export class GraphSharePointPermissionClient implements SharePointPermissionClient {
+  private auditListPromise?: Promise<{ siteId: string; listId: string } | undefined>;
+
   constructor(private readonly getToken: TokenProvider) {}
 
   async listSites() {
@@ -307,6 +320,75 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
     };
   }
 
+  async writeAuditLog(entry: AuditLogDraft) {
+    if (!auditLogEnabled) return;
+
+    const auditTarget = await this.getAuditList();
+    if (!auditTarget) return;
+
+    await this.request<GraphListItem>(
+      `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          fields: {
+            Title: formatAuditTitle(entry),
+            Action: entry.action,
+            ActorEmail: entry.actorEmail,
+            ActorName: entry.actorName,
+            ActorRole: entry.actorRole,
+            TargetEmail: entry.targetEmail ?? "",
+            TargetName: entry.targetName ?? "",
+            PermissionRole: entry.permissionRole ?? "",
+            PreviousRole: entry.previousRole ?? "",
+            SiteName: entry.siteName ?? "",
+            LibraryName: entry.libraryName ?? "",
+            ItemId: entry.itemId ?? "",
+            Source: entry.source ?? "",
+            TenantType: entry.tenantType ?? "",
+            Status: entry.status,
+            ErrorMessage: entry.errorMessage ?? "",
+            GraphRequestId: entry.graphRequestId ?? "",
+            CreatedAt: new Date().toISOString(),
+          },
+        }),
+      },
+    );
+  }
+
+  private async getAuditList() {
+    this.auditListPromise ??= this.resolveAuditList();
+    return this.auditListPromise;
+  }
+
+  private async resolveAuditList() {
+    const site = await this.request<GraphSite>(
+      `/sites/${auditSite.hostname}:${encodeURI(auditSite.path)}?$select=id,name,displayName,webUrl`,
+    );
+    const siteId = site.id;
+    const lists = await this.request<GraphCollection<GraphList>>(
+      `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
+    );
+    const existing = (lists.value ?? []).find((list) => list.displayName === auditListName);
+    if (existing) return { siteId, listId: existing.id };
+
+    const created = await this.request<GraphList>(`/sites/${encodeURIComponent(siteId)}/lists`, {
+      method: "POST",
+      body: JSON.stringify({
+        displayName: auditListName,
+        columns: auditColumns.map((name) => ({
+          name,
+          text: {},
+        })),
+        list: {
+          template: "genericList",
+        },
+      }),
+    });
+
+    return { siteId, listId: created.id };
+  }
+
   private async request<T>(path: string, init: RequestInit = {}) {
     const token = await this.getToken();
     const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
@@ -333,6 +415,32 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
 
 function normalizeDirectorySearchQuery(value: string) {
   return value.trim().replace(/["\\]/g, "").slice(0, 64);
+}
+
+const auditColumns = [
+  "Action",
+  "ActorEmail",
+  "ActorName",
+  "ActorRole",
+  "TargetEmail",
+  "TargetName",
+  "PermissionRole",
+  "PreviousRole",
+  "SiteName",
+  "LibraryName",
+  "ItemId",
+  "Source",
+  "TenantType",
+  "Status",
+  "ErrorMessage",
+  "GraphRequestId",
+  "CreatedAt",
+];
+
+function formatAuditTitle(entry: AuditLogDraft) {
+  return [entry.action, entry.targetEmail || entry.targetName || entry.libraryName, entry.status]
+    .filter(Boolean)
+    .join(" - ");
 }
 
 function mapUserSuggestion(user: GraphUser): UserSuggestion | undefined {
