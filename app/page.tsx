@@ -748,41 +748,30 @@ export default function Home() {
           )}
         </nav>
 
-        <section className="workspace-card">
-          <p className="section-label">Current Workspace</p>
-          <strong>{selectedSite?.name ?? "No site selected"}</strong>
-          <span>{selectedSite ? selectedSite.hostname : "Choose a site to begin."}</span>
-        </section>
-      </aside>
-
-      <section className="portal-main">
-        <header className="portal-topbar">
-          <div className="top-context">
-            <ShieldCheck size={17} />
-            <span>
-              {selectedItem
-                ? `Managing access: ${selectedItem.name}`
-                : portalView === "reports"
-                  ? "Reports"
-                  : selectedSite
-                  ? `Browsing: ${selectedSite.name}`
-                  : "Select a SharePoint site"}
-            </span>
-          </div>
-
-          <div className="user-cluster">
+        <section className="sidebar-account-card" aria-label="Signed in user">
+          <div className="sidebar-account-status">
             <span className="status-dot live" />
             <span>Live Graph</span>
-            <span className={`role-pill ${capabilities.isReadOnly ? "readonly" : ""}`}>{roleLabel}</span>
+          </div>
+          <div className="sidebar-account-main">
             <button className="avatar-button" title={accountLabel}>
               {accountLabel.charAt(0).toUpperCase()}
             </button>
+            <div>
+              <strong>{accountLabel}</strong>
+              <span>{account?.username ?? accountLabel}</span>
+            </div>
+          </div>
+          <div className="sidebar-account-actions">
+            <span className={`role-pill ${capabilities.isReadOnly ? "readonly" : ""}`}>{roleLabel}</span>
             <button className="icon-button" title="Sign out" onClick={signOut}>
               <LogOut size={17} />
             </button>
           </div>
-        </header>
+        </section>
+      </aside>
 
+      <section className="portal-main">
         <div className="portal-content">
           {dataError && <div className="auth-error">{dataError}</div>}
 

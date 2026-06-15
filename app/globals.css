@@ -274,7 +274,8 @@ button {
   opacity: 0.55;
 }
 
-.workspace-card {
+.workspace-card,
+.sidebar-account-card {
   background: #f8f9fa;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -294,53 +295,56 @@ button {
   overflow-wrap: anywhere;
 }
 
-.portal-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.sidebar-account-card {
+  gap: 12px;
+  padding: 14px;
 }
 
-.portal-topbar {
+.sidebar-account-status,
+.sidebar-account-actions {
   align-items: center;
-  backdrop-filter: blur(18px);
-  background: rgba(248, 249, 250, 0.86);
-  border-bottom: 1px solid var(--line);
   display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  min-height: 64px;
-  padding: 0 32px;
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  gap: 8px;
 }
 
-.top-context {
-  align-items: center;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.sidebar-account-status {
   color: var(--muted);
-  display: flex;
-  font-size: 13px;
-  gap: 10px;
-  min-height: 40px;
-  min-width: 0;
-  padding: 0 14px;
+  font-size: 12px;
 }
 
-.top-context span {
+.sidebar-account-main {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.sidebar-account-main strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.user-cluster {
-  align-items: center;
+.sidebar-account-main span {
   color: var(--muted);
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account-actions {
+  justify-content: space-between;
+}
+
+.portal-main {
   display: flex;
-  font-size: 13px;
-  gap: 10px;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .role-pill {
@@ -1727,7 +1731,8 @@ h2 {
     border-left-color: transparent;
   }
 
-  .workspace-card {
+  .workspace-card,
+  .sidebar-account-card {
     margin-top: 0;
   }
 
@@ -1759,28 +1764,10 @@ h2 {
     flex: 1 0 auto;
   }
 
-  .portal-topbar,
   .page-header.with-actions,
   .site-picker-hero {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .portal-topbar {
-    padding: 12px 18px;
-  }
-
-  .top-context,
-  .user-cluster {
-    width: 100%;
-  }
-
-  .top-context {
-    justify-content: flex-start;
-  }
-
-  .user-cluster {
-    justify-content: space-between;
   }
 
   .header-actions {
@@ -1865,10 +1852,6 @@ h2 {
 
   .auth-copy p {
     font-size: 15px;
-  }
-
-  .portal-topbar {
-    min-height: 0;
   }
 
   .page-section,
@@ -2095,7 +2078,6 @@ h2 {
 
 @media (max-width: 420px) {
   .portal-sidebar,
-  .portal-topbar,
   .portal-content,
   .auth-shell {
     padding-left: 12px;
@@ -2117,7 +2099,6 @@ h2 {
     font-size: 18px;
   }
 
-  .top-context,
   .search-box {
     padding-left: 10px;
     padding-right: 10px;
