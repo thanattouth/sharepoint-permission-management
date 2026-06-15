@@ -85,6 +85,7 @@ export type AuditLogDraft = {
   targetName?: string;
   permissionRole?: AccessRole;
   previousRole?: AccessRole;
+  siteId?: string;
   siteName?: string;
   libraryName?: string;
   itemId?: string;

@@ -20,12 +20,13 @@ type GraphListItem = {
 };
 
 export class SharePointListAuditStore implements AuditStore {
-  private auditListPromise?: Promise<{ siteId: string; listId: string }>;
+  private auditListPromises = new Map<string, Promise<{ siteId: string; listId: string }>>();
+  private defaultAuditSiteIdPromise?: Promise<string>;
 
   constructor(private readonly graph: GraphRequestClient) {}
 
   async write(entry: AuditLogDraft) {
-    const auditTarget = await this.getAuditList();
+    const auditTarget = await this.getAuditList(entry.siteId);
 
     await this.graph.request<GraphListItem>(
       `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items`,
@@ -57,16 +58,29 @@ export class SharePointListAuditStore implements AuditStore {
     );
   }
 
-  private async getAuditList() {
-    this.auditListPromise ??= this.resolveAuditList();
-    return this.auditListPromise;
+  private async getAuditList(siteId?: string) {
+    const auditSiteId = siteId || await this.getDefaultAuditSiteId();
+    const existing = this.auditListPromises.get(auditSiteId);
+    if (existing) return existing;
+
+    const promise = this.resolveAuditList(auditSiteId);
+    this.auditListPromises.set(auditSiteId, promise);
+    return promise;
   }
 
-  private async resolveAuditList() {
+  private async getDefaultAuditSiteId() {
+    this.defaultAuditSiteIdPromise ??= this.resolveDefaultAuditSiteId();
+    return this.defaultAuditSiteIdPromise;
+  }
+
+  private async resolveDefaultAuditSiteId() {
     const site = await this.graph.request<GraphSite>(
       `/sites/${auditSite.hostname}:${encodeURI(auditSite.path)}?$select=id,name,displayName,webUrl`,
     );
-    const siteId = site.id;
+    return site.id;
+  }
+
+  private async resolveAuditList(siteId: string) {
     const lists = await this.graph.request<GraphCollection<GraphList>>(
       `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
     );

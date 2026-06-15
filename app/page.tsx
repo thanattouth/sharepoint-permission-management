@@ -685,6 +685,7 @@ export default function Home() {
       actorEmail: account?.username ?? accountLabel,
       actorName: account?.name ?? accountLabel,
       actorRole: roleLabel,
+      siteId: selectedSite?.id ?? selectedItem?.siteId,
       siteName: selectedSite?.name,
       libraryName: selectedItem?.name ?? path.at(-1)?.name,
       itemId: selectedItem?.itemId ?? selectedItem?.id,
