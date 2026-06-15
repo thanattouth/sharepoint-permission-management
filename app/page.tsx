@@ -20,7 +20,7 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365, signOutMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
@@ -975,6 +975,8 @@ function SitePicker({
   loadingLabel: string;
   onSelect: (site: SiteSummary) => void;
 }) {
+  const isLoadingSites = loadingLabel === "Loading site contents" || loadingLabel === "Restoring session";
+
   return (
     <section className="page-section">
       <div className="site-picker-hero">
@@ -1014,6 +1016,7 @@ function SitePicker({
             </div>
           </button>
         ))}
+        {sites.length === 0 && loadingLabel && <SiteCardSkeleton count={2} />}
       </div>
 
       {sites.length === 0 && !loadingLabel && (
@@ -1022,7 +1025,7 @@ function SitePicker({
         </div>
       )}
 
-      {loadingLabel && <div className="loading-note">{loadingLabel}</div>}
+      {isLoadingSites && <div className="loading-note">{loadingLabel}</div>}
     </section>
   );
 }
@@ -1039,6 +1042,7 @@ function ReportsPanel({
   onRefresh: () => void;
 }) {
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
+  const isLoadingReport = loadingLabel === "Loading reports";
 
   return (
     <section className="page-section">
@@ -1048,16 +1052,16 @@ function ReportsPanel({
           <h1>Permission Overview</h1>
           <p>Read-only summary across configured SharePoint sites.</p>
         </div>
-        <button className="secondary-button" onClick={onRefresh}>
-          <RefreshCw size={17} />
+        <button className="secondary-button" disabled={isLoadingReport} onClick={onRefresh}>
+          <RefreshCw className={isLoadingReport ? "spin-icon" : ""} size={17} />
           Refresh report
         </button>
       </div>
 
       {reportError && <div className="auth-error">{reportError}</div>}
-      {loadingLabel === "Loading reports" && <div className="loading-note">Loading reports</div>}
+      {isLoadingReport && <ReportSkeleton />}
 
-      {report && (
+      {report && !isLoadingReport && (
         <>
           <div className="report-meta">
             <span>Generated</span>
@@ -1201,6 +1205,7 @@ function ContentExplorer({
   onRefresh: () => void;
 }) {
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
+  const isLoadingContents = loadingLabel.startsWith("Loading") || loadingLabel.startsWith("Opening") || loadingLabel.startsWith("Refreshing");
   const currentSelection = selectedContent && contents.some((item) => item.id === selectedContent.id)
     ? selectedContent
     : contents[0];
@@ -1213,8 +1218,8 @@ function ContentExplorer({
           <h1>{path.at(-1)?.name ?? `${site.name} Contents`}</h1>
           <p>{path.length ? "Open a folder or manage access for this location." : "Review libraries available in this site."}</p>
         </div>
-        <button className="icon-button" title="Refresh" onClick={onRefresh}>
-          <RefreshCw size={17} />
+        <button className="icon-button" disabled={isLoadingContents} title="Refresh" onClick={onRefresh}>
+          <RefreshCw className={isLoadingContents ? "spin-icon" : ""} size={17} />
         </button>
       </div>
 
@@ -1263,7 +1268,9 @@ function ContentExplorer({
             <span>Protection</span>
             <span>Modified</span>
           </div>
-          {contents.map((item) => (
+          {isLoadingContents ? (
+            <TableSkeleton columns={4} rows={5} />
+          ) : contents.map((item) => (
             <div
               className={`items-row ${currentSelection?.id === item.id ? "selected" : ""}`}
               key={item.id}
@@ -1289,11 +1296,13 @@ function ContentExplorer({
               <span className="muted" data-label="Modified">{item.modified ?? "Live Graph"}</span>
             </div>
           ))}
-          {contents.length === 0 && <div className="empty-row">{loadingLabel || "No items found."}</div>}
+          {!isLoadingContents && contents.length === 0 && <div className="empty-row">No items found.</div>}
         </div>
 
         <aside className="details-pane">
-          {currentSelection ? (
+          {isLoadingContents ? (
+            <DetailsSkeleton />
+          ) : currentSelection ? (
             <>
               <div className="details-icon">
                 <ItemIcon item={currentSelection} />
@@ -1400,6 +1409,7 @@ function AccessPanel({
   onUpdateRole: (permissionId: string, role: AccessRole) => void;
   onRemove: (permissionId: string) => void;
 }) {
+  const isLoadingPermissions = loadingLabel === "Loading permissions" || loadingLabel === "Removing permission" || loadingLabel === "Updating role";
   const externalGrantTarget = newEmail.includes("@") && !isInternalEmail(newEmail);
   const lockedCount = permissions.filter(
     (permission) => permission.canEditRole === false || permission.canDelete === false || permission.role === "owner",
@@ -1425,8 +1435,8 @@ function AccessPanel({
             <ArrowLeft size={16} />
             Back to {backLabel}
           </button>
-          <button className="icon-button" title="Refresh permissions" onClick={onRefresh}>
-            <RefreshCw size={17} />
+          <button className="icon-button" disabled={isLoadingPermissions} title="Refresh permissions" onClick={onRefresh}>
+            <RefreshCw className={isLoadingPermissions ? "spin-icon" : ""} size={17} />
           </button>
         </div>
       </div>
@@ -1562,7 +1572,8 @@ function AccessPanel({
 
       <PermissionTable
         permissions={directPermissions}
-        emptyText={loadingLabel || "No direct permissions found."}
+        emptyText="No direct permissions found."
+        isLoading={isLoadingPermissions}
         canManagePermissions={canManagePermissions}
         onUpdateRole={onUpdateRole}
         onRemove={onRemove}
@@ -1580,6 +1591,7 @@ function AccessPanel({
           <PermissionTable
             permissions={managedPermissions}
             emptyText=""
+            isLoading={isLoadingPermissions}
             canManagePermissions={canManagePermissions}
             onUpdateRole={onUpdateRole}
             onRemove={onRemove}
@@ -1593,12 +1605,14 @@ function AccessPanel({
 function PermissionTable({
   permissions,
   emptyText,
+  isLoading,
   canManagePermissions,
   onUpdateRole,
   onRemove,
 }: {
   permissions: PermissionEntry[];
   emptyText: string;
+  isLoading?: boolean;
   canManagePermissions: boolean;
   onUpdateRole: (permissionId: string, role: AccessRole) => void;
   onRemove: (permissionId: string) => void;
@@ -1612,7 +1626,9 @@ function PermissionTable({
         <span>Activity</span>
         <span>Remove</span>
       </div>
-      {permissions.map((permission) => (
+      {isLoading ? (
+        <TableSkeleton columns={5} rows={4} />
+      ) : permissions.map((permission) => (
         <div className="table-row" role="row" key={permission.id}>
           <div className="principal-cell">
             <span className="avatar">
@@ -1655,7 +1671,87 @@ function PermissionTable({
           </div>
         </div>
       ))}
-      {permissions.length === 0 && emptyText && <div className="empty-row">{emptyText}</div>}
+      {!isLoading && permissions.length === 0 && emptyText && <div className="empty-row">{emptyText}</div>}
+    </div>
+  );
+}
+
+function SiteCardSkeleton({ count }: { count: number }) {
+  return Array.from({ length: count }).map((_, index) => (
+    <div className="site-card skeleton-card" key={`site-skeleton-${index}`}>
+      <div className="site-card-band skeleton-block" />
+      <div className="site-card-body">
+        <div className="site-card-avatar skeleton-block" />
+        <div className="skeleton-line wide" />
+        <div className="skeleton-line medium" />
+        <div className="skeleton-pill-row">
+          <span className="skeleton-pill" />
+          <span className="skeleton-pill" />
+        </div>
+      </div>
+    </div>
+  ));
+}
+
+function ReportSkeleton() {
+  return (
+    <div className="skeleton-stack" aria-label="Loading report">
+      <div className="report-meta skeleton-meta">
+        <span className="skeleton-line short" />
+        <strong className="skeleton-line medium" />
+      </div>
+      <div className="report-metrics">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div className="report-metric skeleton-metric" key={`metric-skeleton-${index}`}>
+            <span className="skeleton-line short" />
+            <span className="skeleton-line medium" />
+          </div>
+        ))}
+      </div>
+      <TableSkeleton columns={5} rows={5} />
+    </div>
+  );
+}
+
+function TableSkeleton({ columns, rows }: { columns: number; rows: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <div
+          className="skeleton-table-row"
+          role="row"
+          key={`skeleton-row-${rowIndex}`}
+          style={{ "--skeleton-columns": columns } as CSSProperties}
+        >
+          {Array.from({ length: columns }).map((__, columnIndex) => (
+            <span
+              className={`skeleton-line ${columnIndex === 0 ? "wide" : columnIndex % 2 === 0 ? "medium" : "short"}`}
+              key={`skeleton-cell-${rowIndex}-${columnIndex}`}
+            />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function DetailsSkeleton() {
+  return (
+    <div className="skeleton-stack" aria-label="Loading details">
+      <span className="details-icon skeleton-block" />
+      <span className="skeleton-line short" />
+      <span className="skeleton-line wide" />
+      <span className="skeleton-line medium" />
+      <div className="details-meta">
+        <div>
+          <span className="skeleton-line short" />
+          <strong className="skeleton-line medium" />
+        </div>
+        <div>
+          <span className="skeleton-line short" />
+          <strong className="skeleton-line medium" />
+        </div>
+      </div>
     </div>
   );
 }

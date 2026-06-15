@@ -669,6 +669,118 @@ h2 {
   margin-top: 16px;
 }
 
+.spin-icon {
+  animation: spin 0.8s linear infinite;
+}
+
+.skeleton-block,
+.skeleton-line,
+.skeleton-pill,
+.skeleton-table-row {
+  background: linear-gradient(90deg, #f2f4f7 0%, #e4e7ec 48%, #f2f4f7 100%);
+  background-size: 220% 100%;
+  animation: shimmer 1.15s ease-in-out infinite;
+}
+
+.skeleton-card {
+  cursor: default;
+  pointer-events: none;
+}
+
+.skeleton-card .site-card-band {
+  border: 0;
+}
+
+.skeleton-card .site-card-avatar {
+  color: transparent;
+}
+
+.skeleton-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.skeleton-line {
+  border-radius: 999px;
+  display: block;
+  height: 12px;
+  width: 100%;
+}
+
+.skeleton-line.short {
+  max-width: 80px;
+}
+
+.skeleton-line.medium {
+  max-width: 150px;
+}
+
+.skeleton-line.wide {
+  max-width: 240px;
+}
+
+.skeleton-pill-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.skeleton-pill {
+  border-radius: 999px;
+  display: inline-block;
+  height: 28px;
+  width: 116px;
+}
+
+.skeleton-meta {
+  width: fit-content;
+}
+
+.skeleton-metric {
+  min-height: 90px;
+}
+
+.skeleton-table-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(var(--skeleton-columns, 4), minmax(80px, 1fr));
+  min-height: 72px;
+  padding: 12px;
+}
+
+.items-table .skeleton-table-row {
+  grid-template-columns: minmax(260px, 1fr) 90px 120px 110px;
+  min-width: 680px;
+}
+
+.permission-table .skeleton-table-row,
+.report-permission-table .skeleton-table-row {
+  grid-template-columns: minmax(280px, 1fr) 140px 120px 180px 120px;
+  min-width: 760px;
+}
+
+.report-table .skeleton-table-row {
+  grid-template-columns: minmax(240px, 1fr) repeat(5, 100px);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .explorer-bar {
   align-items: center;
   backdrop-filter: saturate(180%) blur(20px);
