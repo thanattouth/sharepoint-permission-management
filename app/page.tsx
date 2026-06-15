@@ -21,7 +21,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { acquireGraphToken, isAuthConfigured, signInMicrosoft365 } from "@/lib/auth";
+import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
@@ -60,6 +60,14 @@ type AppHistoryState = {
 
 type PortalView = "workspace" | "reports";
 
+type SavedSessionView = {
+  portalView: PortalView;
+  view: AppHistoryView;
+};
+
+const savedSessionViewKey = "spAccess:lastView";
+const signedOutMarkerKey = "spAccess:signedOut";
+
 export default function Home() {
   const [signedIn, setSignedIn] = useState(false);
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -84,6 +92,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [dataError, setDataError] = useState("");
   const [loadingLabel, setLoadingLabel] = useState("");
+  const [restoringSession, setRestoringSession] = useState(true);
   const restoringHistoryRef = useRef(false);
 
   const graphClient = useMemo<SharePointPermissionClient>(() => {
@@ -92,6 +101,59 @@ export default function Home() {
 
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
   const capabilities = useMemo(() => getCapabilities(appRoles), [appRoles]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSignedInSession() {
+      if (!isAuthConfigured) {
+        setRestoringSession(false);
+        return;
+      }
+
+      if (window.sessionStorage.getItem(signedOutMarkerKey) === "true") {
+        setRestoringSession(false);
+        return;
+      }
+
+      setLoadingLabel("Restoring session");
+
+      try {
+        const restoredAccount = await getSignedInAccount();
+        if (!restoredAccount || cancelled) return;
+
+        const nextRoles = getAccountRoles(restoredAccount);
+        if (nextRoles.length === 0) return;
+
+        const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(restoredAccount));
+        const nextSites = await nextClient.listSites();
+        if (cancelled) return;
+
+        setSignedIn(true);
+        setAccount(restoredAccount);
+        setAccountLabel(restoredAccount.username ?? "Microsoft 365 Admin");
+        setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
+        setSites(nextSites);
+
+        await restoreSavedSessionView(nextClient, nextRoles);
+      } catch {
+        clearSavedSessionView();
+      } finally {
+        if (!cancelled) {
+          setLoadingLabel("");
+          setRestoringSession(false);
+        }
+      }
+    }
+
+    void restoreSignedInSession();
+
+    return () => {
+      cancelled = true;
+    };
+    // Restore runs once on browser refresh using the MSAL session cache.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -110,6 +172,13 @@ export default function Home() {
     // The handler intentionally restores through the latest Graph client after sign-in.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn, graphClient]);
+
+  useEffect(() => {
+    if (!signedIn || restoringSession) return;
+    saveSessionView({ portalView, view: getHistoryView() });
+    // Persists only navigation state; data is reloaded from Graph after refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, restoringSession, portalView, selectedSite, path, selectedItem]);
 
   useEffect(() => {
     if (!signedIn || !selectedItem) {
@@ -183,6 +252,7 @@ export default function Home() {
         return;
       }
 
+      window.sessionStorage.removeItem(signedOutMarkerKey);
       const response = await signInMicrosoft365();
       const nextRoles = getAccountRoles(response.account);
       if (nextRoles.length === 0) {
@@ -206,6 +276,7 @@ export default function Home() {
       setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
       setSites(nextSites);
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
+      saveSessionView({ portalView: "workspace", view: { selectedSite: null, path: [], selectedItem: null } });
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Unable to connect Microsoft 365.");
     } finally {
@@ -230,6 +301,8 @@ export default function Home() {
     setDataError("");
     setReportSummary(null);
     setReportError("");
+    window.sessionStorage.setItem(signedOutMarkerKey, "true");
+    clearSavedSessionView();
     replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
   }
 
@@ -679,6 +752,52 @@ export default function Home() {
     return filterContentItemsForRoles(rootContents, appRoles);
   }
 
+  async function restoreSavedSessionView(client: SharePointPermissionClient, roles: ReturnType<typeof getAccountRoles>) {
+    const saved = readSavedSessionView();
+    if (!saved) {
+      replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
+      return;
+    }
+
+    restoringHistoryRef.current = true;
+    setPortalView(saved.portalView);
+    setSelectedSite(saved.view.selectedSite);
+    setPath(saved.view.path);
+    setSelectedItem(saved.view.selectedItem);
+
+    try {
+      if (saved.portalView === "reports") {
+        setReportSummary(await client.getReportSummary());
+        return;
+      }
+
+      if (!saved.view.selectedSite) {
+        setContents([]);
+        setPermissions([]);
+        replaceAppHistory(saved.view);
+        return;
+      }
+
+      const currentFolder = saved.view.path.at(-1);
+      const nextContents = currentFolder
+        ? await client.listChildren(currentFolder)
+        : filterContentItemsForRoles(await client.listContentItems(saved.view.selectedSite.id), roles);
+
+      setContents(nextContents);
+
+      if (saved.view.selectedItem) {
+        const nextPermissions = await client.listPermissions(saved.view.selectedItem.id);
+        setPermissions(normalizeSharePointPrincipals(nextPermissions, saved.view.selectedSite.name));
+      } else {
+        setPermissions([]);
+      }
+
+      replaceAppHistory(saved.view);
+    } finally {
+      restoringHistoryRef.current = false;
+    }
+  }
+
   if (!signedIn) {
     return (
       <main className="auth-shell">
@@ -701,9 +820,13 @@ export default function Home() {
 
           {authError && <div className="auth-error">{authError}</div>}
 
-          <button className="login-button auth-login-button" onClick={connectMicrosoft365}>
+          <button className="login-button auth-login-button" disabled={restoringSession} onClick={connectMicrosoft365}>
             <LogIn size={18} />
-            {loadingLabel === "Connecting Microsoft 365" ? "Connecting" : "Sign in with Microsoft 365"}
+            {restoringSession
+              ? "Restoring session"
+              : loadingLabel === "Connecting Microsoft 365"
+                ? "Connecting"
+                : "Sign in with Microsoft 365"}
           </button>
 
           <div className="auth-meta">
@@ -1560,5 +1683,23 @@ function getErrorMessage(error: unknown, fallback = "Unexpected error.") {
 
 function extractGraphRequestId(message: string) {
   return message.match(/Request ID:\s*([0-9a-f-]+)/i)?.[1];
+}
+
+function readSavedSessionView(): SavedSessionView | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(savedSessionViewKey);
+    return raw ? (JSON.parse(raw) as SavedSessionView) : undefined;
+  } catch {
+    clearSavedSessionView();
+    return undefined;
+  }
+}
+
+function saveSessionView(view: SavedSessionView) {
+  window.sessionStorage.setItem(savedSessionViewKey, JSON.stringify(view));
+}
+
+function clearSavedSessionView() {
+  window.sessionStorage.removeItem(savedSessionViewKey);
 }
 

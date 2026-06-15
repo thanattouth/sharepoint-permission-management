@@ -43,6 +43,16 @@ export async function signInMicrosoft365(): Promise<AuthenticationResult> {
   return response;
 }
 
+export async function getSignedInAccount() {
+  const msal = getMsalInstance();
+  await msal.initialize();
+  const account = msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? null;
+  if (account) {
+    msal.setActiveAccount(account);
+  }
+  return account;
+}
+
 export async function acquireGraphToken(account?: AccountInfo | null) {
   const msal = getMsalInstance();
   await msal.initialize();
