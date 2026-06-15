@@ -55,6 +55,8 @@ The app creates the list automatically on first write when the signed-in Admin h
 
 Set `NEXT_PUBLIC_AUDIT_LOG_ENABLED=false` to disable SharePoint audit writes without removing the local recent-changes UI.
 
+For Azure App Service deployments, add the same `NEXT_PUBLIC_*` values as GitHub repository variables too. Next.js embeds `NEXT_PUBLIC_*` values during `next build`, so Azure App Settings alone are not enough when GitHub Actions builds the artifact.
+
 ## Graph Integration
 
 When the Entra settings are present, the app connects to Microsoft Graph after sign-in and loads:

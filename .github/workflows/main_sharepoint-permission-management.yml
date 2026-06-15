@@ -14,6 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read #This is required for actions/checkout
+    env:
+      NEXT_PUBLIC_MSAL_CLIENT_ID: ${{ vars.NEXT_PUBLIC_MSAL_CLIENT_ID }}
+      NEXT_PUBLIC_MSAL_TENANT_ID: ${{ vars.NEXT_PUBLIC_MSAL_TENANT_ID }}
+      NEXT_PUBLIC_TENANT_DOMAIN: ${{ vars.NEXT_PUBLIC_TENANT_DOMAIN }}
+      NEXT_PUBLIC_INTERNAL_DOMAINS: ${{ vars.NEXT_PUBLIC_INTERNAL_DOMAINS }}
+      NEXT_PUBLIC_TARGET_SITES: ${{ vars.NEXT_PUBLIC_TARGET_SITES }}
+      NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES: ${{ vars.NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES }}
+      NEXT_PUBLIC_AUDIT_SITE: ${{ vars.NEXT_PUBLIC_AUDIT_SITE }}
+      NEXT_PUBLIC_AUDIT_LIST_NAME: ${{ vars.NEXT_PUBLIC_AUDIT_LIST_NAME }}
+      NEXT_PUBLIC_AUDIT_LOG_ENABLED: ${{ vars.NEXT_PUBLIC_AUDIT_LOG_ENABLED }}
 
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +32,12 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '22.x'
+
+      - name: Validate public build configuration
+        run: |
+          test -n "$NEXT_PUBLIC_MSAL_CLIENT_ID"
+          test -n "$NEXT_PUBLIC_MSAL_TENANT_ID"
+          test -n "$NEXT_PUBLIC_TARGET_SITES"
 
       - name: npm install, build, and test
         run: |
