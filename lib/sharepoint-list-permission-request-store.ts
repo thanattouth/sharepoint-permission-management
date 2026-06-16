@@ -12,6 +12,10 @@ type GraphList = {
   displayName?: string;
 };
 
+type GraphColumn = {
+  name?: string;
+};
+
 type GraphListItem = {
   id: string;
 };
@@ -42,6 +46,8 @@ export class SharePointListPermissionRequestStore implements PermissionRequestSt
             RequestedRole: request.requestedRole,
             PreviousRole: request.previousRole ?? "",
             PermissionId: request.permissionId ?? "",
+            LibraryId: request.libraryId ?? "",
+            DriveId: request.driveId ?? "",
             SiteName: request.siteName ?? "",
             LibraryName: request.libraryName ?? "",
             ItemId: request.itemId ?? "",
@@ -82,7 +88,10 @@ export class SharePointListPermissionRequestStore implements PermissionRequestSt
       `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
     );
     const existing = (lists.value ?? []).find((list) => list.displayName === permissionRequestListName);
-    if (existing) return { siteId, listId: existing.id };
+    if (existing) {
+      await this.ensureRequestColumns(siteId, existing.id);
+      return { siteId, listId: existing.id };
+    }
 
     const created = await this.graph.request<GraphList>(`/sites/${encodeURIComponent(siteId)}/lists`, {
       method: "POST",
@@ -100,6 +109,29 @@ export class SharePointListPermissionRequestStore implements PermissionRequestSt
 
     return { siteId, listId: created.id };
   }
+
+  private async ensureRequestColumns(siteId: string, listId: string) {
+    const columns = await this.graph.request<GraphCollection<GraphColumn>>(
+      `/sites/${encodeURIComponent(siteId)}/lists/${encodeURIComponent(listId)}/columns?$select=name`,
+    );
+    const existingColumnNames = new Set((columns.value ?? []).map((column) => column.name).filter(Boolean));
+    const missingColumns = permissionRequestColumns.filter((name) => !existingColumnNames.has(name));
+
+    await Promise.all(
+      missingColumns.map((name) =>
+        this.graph.request<GraphColumn>(
+          `/sites/${encodeURIComponent(siteId)}/lists/${encodeURIComponent(listId)}/columns`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name,
+              text: {},
+            }),
+          },
+        ),
+      ),
+    );
+  }
 }
 
 const permissionRequestColumns = [
@@ -113,6 +145,8 @@ const permissionRequestColumns = [
   "RequestedRole",
   "PreviousRole",
   "PermissionId",
+  "LibraryId",
+  "DriveId",
   "SiteName",
   "LibraryName",
   "ItemId",

@@ -112,6 +112,8 @@ export type PermissionRequestDraft = {
   requestedRole: AccessRole;
   previousRole?: AccessRole;
   permissionId?: string;
+  libraryId?: string;
+  driveId?: string;
   siteId?: string;
   siteName?: string;
   libraryName?: string;

@@ -687,6 +687,8 @@ export default function Home() {
       actorRole: roleLabel,
       siteId: selectedSite?.id ?? selectedItem?.siteId,
       siteName: selectedSite?.name,
+      libraryId: selectedItem?.id,
+      driveId: selectedItem?.driveId,
       libraryName: selectedItem?.name ?? path.at(-1)?.name,
       itemId: selectedItem?.itemId ?? selectedItem?.id,
       itemName: selectedItem?.name,
@@ -712,6 +714,9 @@ export default function Home() {
       requestedRole: approval.requestedRole,
       previousRole: approval.permission.role,
       permissionId: approval.permission.id,
+      libraryId: approval.permission.libraryId,
+      driveId: approval.permission.driveId,
+      itemId: approval.permission.itemId,
       source: approval.permission.source,
       tenantType: approval.permission.tenant,
     };
