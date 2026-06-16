@@ -4,7 +4,7 @@ import {
   type AccountInfo,
   type AuthenticationResult,
   type Configuration,
-  type PopupRequest,
+  type RedirectRequest,
 } from "@azure/msal-browser";
 import { graphReadScopes } from "./graph";
 
@@ -18,22 +18,37 @@ export const msalConfig: Configuration = {
     clientId: clientId ?? "",
     authority: `https://login.microsoftonline.com/${tenantId}`,
     redirectUri: typeof window === "undefined" ? undefined : window.location.origin,
+    navigateToLoginRequestUrl: false,
   },
   cache: {
     cacheLocation: "sessionStorage",
   },
 };
 
-export const loginRequest: PopupRequest = {
+export const loginRequest: RedirectRequest = {
   scopes: ["User.Read"],
 };
 
 let msalInstance: PublicClientApplication | undefined;
 let interactiveRequest: Promise<unknown> | undefined;
+let redirectResponse: Promise<AuthenticationResult | null> | undefined;
 
 export function getMsalInstance() {
   msalInstance ??= new PublicClientApplication(msalConfig);
   return msalInstance;
+}
+
+async function initializeMsal() {
+  const msal = getMsalInstance();
+  await msal.initialize();
+  redirectResponse ??= msal.handleRedirectPromise();
+  const response = await redirectResponse;
+
+  if (response?.account) {
+    msal.setActiveAccount(response.account);
+  }
+
+  return msal;
 }
 
 function isInteractionInProgressError(error: unknown) {
@@ -93,17 +108,30 @@ async function runInteractiveRequestWithRecovery<T>(request: () => Promise<T>) {
   }
 }
 
-export async function signInMicrosoft365(): Promise<AuthenticationResult> {
-  const msal = getMsalInstance();
-  await msal.initialize();
-  const response = await runInteractiveRequestWithRecovery(() => msal.loginPopup(loginRequest));
-  msal.setActiveAccount(response.account);
-  return response;
+export async function signInMicrosoft365(): Promise<AuthenticationResult | null> {
+  const msal = await initializeMsal();
+  const existingAccount = msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? null;
+
+  if (existingAccount) {
+    msal.setActiveAccount(existingAccount);
+    const response = await msal.acquireTokenSilent({
+      scopes: loginRequest.scopes,
+      account: existingAccount,
+    });
+    return response;
+  }
+
+  await runInteractiveRequestWithRecovery(() =>
+    msal.loginRedirect({
+      ...loginRequest,
+      redirectStartPage: window.location.href,
+    }),
+  );
+  return null;
 }
 
 export async function getSignedInAccount() {
-  const msal = getMsalInstance();
-  await msal.initialize();
+  const msal = await initializeMsal();
   const account = msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? null;
   if (account) {
     msal.setActiveAccount(account);
@@ -112,8 +140,7 @@ export async function getSignedInAccount() {
 }
 
 export async function signOutMicrosoft365(account?: AccountInfo | null) {
-  const msal = getMsalInstance();
-  await msal.initialize();
+  const msal = await initializeMsal();
   const activeAccount = account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0] ?? undefined;
 
   await msal.clearCache({ account: activeAccount });
@@ -126,12 +153,14 @@ export async function acquireGraphToken(
   options: { allowPopup?: boolean } = {},
 ) {
   const allowPopup = options.allowPopup ?? true;
-  const msal = getMsalInstance();
-  await msal.initialize();
+  const msal = await initializeMsal();
   const activeAccount = account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0];
 
   if (!activeAccount) {
     const response = await signInMicrosoft365();
+    if (!response) {
+      throw new Error("Microsoft 365 sign-in is required before loading SharePoint data.");
+    }
     return response.accessToken;
   }
 

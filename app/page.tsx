@@ -270,6 +270,8 @@ export default function Home() {
 
       window.sessionStorage.removeItem(signedOutMarkerKey);
       const response = await signInMicrosoft365();
+      if (!response) return;
+
       const nextRoles = getAccountRoles(response.account);
       if (nextRoles.length === 0) {
         setAuthError("Your account is signed in but has no app role assigned. Ask an administrator to assign Admin, InternalUser, GuestUser, or ExecutiveUser.");
