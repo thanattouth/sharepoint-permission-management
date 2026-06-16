@@ -27,6 +27,7 @@ import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimar
 import { createAuditStore } from "@/lib/audit-store-factory";
 import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
+  graphReadScopes,
   graphWriteScopes,
   GraphSharePointPermissionClient,
   type PermissionDraft,
@@ -94,6 +95,7 @@ export default function Home() {
   const [reportError, setReportError] = useState("");
   const [authError, setAuthError] = useState("");
   const [dataError, setDataError] = useState("");
+  const [dataConsentRequired, setDataConsentRequired] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState("");
   const [restoringSession, setRestoringSession] = useState(true);
   const restoringHistoryRef = useRef(false);
@@ -138,7 +140,7 @@ export default function Home() {
           acquireGraphToken(restoredAccount, undefined, { allowPopup: false }),
         );
         const nextSites = await nextClient.listSites().catch((error) => {
-          setDataError(getErrorMessage(error, "Unable to load SharePoint sites."));
+          handleSharePointDataError(error);
           return [];
         });
         if (cancelled) return;
@@ -278,7 +280,7 @@ export default function Home() {
         acquireGraphToken(response.account, undefined, { allowPopup: false }),
       );
       const nextSites = await nextClient.listSites().catch((error) => {
-        setDataError(getErrorMessage(error, "Unable to load SharePoint sites."));
+        handleSharePointDataError(error);
         return [];
       });
       const nextAuditStore = createAuditStore(() => acquireGraphToken(response.account, undefined, { allowPopup: false }));
@@ -341,6 +343,7 @@ export default function Home() {
     setPermissions([]);
     setQuery("");
     setDataError("");
+    setDataConsentRequired(false);
     pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
   }
 
@@ -355,6 +358,7 @@ export default function Home() {
     setPermissions([]);
     setQuery("");
     setDataError("");
+    setDataConsentRequired(false);
     setReportError("");
     setLoadingLabel("Loading reports");
 
@@ -385,6 +389,7 @@ export default function Home() {
     setQuery("");
     setPermissions([]);
     setDataError("");
+    setDataConsentRequired(false);
     setLoadingLabel("Loading site contents");
 
     try {
@@ -488,6 +493,7 @@ export default function Home() {
     setSelectedItem(item);
     setQuery("");
     setDataError("");
+    setDataConsentRequired(false);
     setLoadingLabel("Loading permissions");
 
     try {
@@ -680,6 +686,35 @@ export default function Home() {
       },
       ...current,
     ]);
+  }
+
+  async function requestSharePointDataAccess() {
+    if (!account) return;
+
+    setDataError("");
+    setDataConsentRequired(false);
+    setLoadingLabel("Requesting SharePoint access");
+
+    try {
+      const consentClient = new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphReadScopes));
+      const nextSites = await consentClient.listSites();
+      setSites(nextSites);
+
+      if (portalView === "reports" && capabilities.canViewReports) {
+        setReportSummary(await consentClient.getReportSummary());
+        setReportError("");
+      }
+    } catch (error) {
+      handleSharePointDataError(error);
+    } finally {
+      setLoadingLabel("");
+    }
+  }
+
+  function handleSharePointDataError(error: unknown) {
+    const message = getErrorMessage(error, "Unable to load SharePoint data.");
+    setDataError(message);
+    setDataConsentRequired(message.includes("Additional Microsoft Graph consent"));
   }
 
   function writeAudit(entry: {
@@ -923,7 +958,17 @@ export default function Home() {
 
       <section className="portal-main">
         <div className="portal-content">
-          {dataError && <div className="auth-error">{dataError}</div>}
+          {dataError && (
+            <div className="auth-error action-error">
+              <span>{dataError}</span>
+              {dataConsentRequired && (
+                <button className="secondary-button" disabled={loadingLabel === "Requesting SharePoint access"} onClick={requestSharePointDataAccess}>
+                  <ShieldCheck size={16} />
+                  {loadingLabel === "Requesting SharePoint access" ? "Requesting access" : "Request SharePoint access"}
+                </button>
+              )}
+            </div>
+          )}
 
           {portalView === "reports" ? (
             <ReportsPanel
@@ -933,7 +978,14 @@ export default function Home() {
               onRefresh={openReports}
             />
           ) : !selectedSite ? (
-            <SitePicker sites={sites} onSelect={chooseSite} loadingLabel={loadingLabel} />
+            <SitePicker
+              sites={sites}
+              onSelect={chooseSite}
+              loadingLabel={loadingLabel}
+              dataError={dataError}
+              dataConsentRequired={dataConsentRequired}
+              onRequestDataAccess={requestSharePointDataAccess}
+            />
           ) : selectedItem ? (
             <AccessPanel
               item={selectedItem}
@@ -984,11 +1036,17 @@ export default function Home() {
 function SitePicker({
   sites,
   loadingLabel,
+  dataError,
+  dataConsentRequired,
   onSelect,
+  onRequestDataAccess,
 }: {
   sites: SiteSummary[];
   loadingLabel: string;
+  dataError: string;
+  dataConsentRequired: boolean;
   onSelect: (site: SiteSummary) => void;
+  onRequestDataAccess: () => void;
 }) {
   const isLoadingSites = loadingLabel === "Loading site contents" || loadingLabel === "Restoring session";
 
@@ -1034,9 +1092,22 @@ function SitePicker({
         {sites.length === 0 && loadingLabel && <SiteCardSkeleton count={2} />}
       </div>
 
-      {sites.length === 0 && !loadingLabel && (
+      {sites.length === 0 && !loadingLabel && !dataError && (
         <div className="empty-row site-empty-state">
           No SharePoint sites are configured for this app.
+        </div>
+      )}
+
+      {sites.length === 0 && !loadingLabel && dataError && (
+        <div className="empty-row site-empty-state action-empty-state">
+          <strong>SharePoint data is not available yet.</strong>
+          <span>{dataError}</span>
+          {dataConsentRequired && (
+            <button className="secondary-button" onClick={onRequestDataAccess}>
+              <ShieldCheck size={16} />
+              Request SharePoint access
+            </button>
+          )}
         </div>
       )}
 
