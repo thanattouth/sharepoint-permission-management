@@ -32,10 +32,14 @@ export interface SharePointPermissionClient {
   getReportSummary(): Promise<ReportSummary>;
 }
 
-export const graphScopes = [
+export const graphReadScopes = [
   "User.Read",
   "User.ReadBasic.All",
   "Sites.Read.All",
+];
+
+export const graphWriteScopes = [
+  ...graphReadScopes,
   "Sites.ReadWrite.All",
   "Files.ReadWrite.All",
 ];

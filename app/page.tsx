@@ -27,6 +27,7 @@ import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimar
 import { createAuditStore } from "@/lib/audit-store-factory";
 import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
+  graphWriteScopes,
   GraphSharePointPermissionClient,
   type PermissionDraft,
   type SharePointPermissionClient,
@@ -102,6 +103,9 @@ export default function Home() {
   }, [account]);
   const auditStore = useMemo<AuditStore>(() => {
     return createAuditStore(() => acquireGraphToken(account));
+  }, [account]);
+  const writeGraphClient = useMemo<SharePointPermissionClient>(() => {
+    return new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphWriteScopes));
   }, [account]);
 
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
@@ -537,7 +541,7 @@ export default function Home() {
     setLoadingLabel("Granting permission");
 
     try {
-      const created = await graphClient.grantPermission(selectedItem, draft);
+      const created = await writeGraphClient.grantPermission(selectedItem, draft);
       setPermissions((current) => [...created, ...current]);
 
       addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email, "Success");
@@ -578,7 +582,7 @@ export default function Home() {
     setLoadingLabel("Updating role");
 
     try {
-      const updated = await graphClient.updatePermissionRole(changed, role);
+      const updated = await writeGraphClient.updatePermissionRole(changed, role);
       setPermissions((current) =>
         current.map((permission) => (permission.id === permissionId ? updated : permission)),
       );
@@ -622,7 +626,7 @@ export default function Home() {
     setLoadingLabel("Removing permission");
 
     try {
-      await graphClient.removePermission(removed);
+      await writeGraphClient.removePermission(removed);
       setPermissions((current) => current.filter((permission) => permission.id !== permissionId));
       addAudit("Removed permission", removed.email, "Success");
       void writeAudit({

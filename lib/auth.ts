@@ -6,7 +6,7 @@ import {
   type Configuration,
   type PopupRequest,
 } from "@azure/msal-browser";
-import { graphScopes } from "./graph";
+import { graphReadScopes } from "./graph";
 
 const clientId = process.env.NEXT_PUBLIC_MSAL_CLIENT_ID;
 const tenantId = process.env.NEXT_PUBLIC_MSAL_TENANT_ID ?? "common";
@@ -25,7 +25,7 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest: PopupRequest = {
-  scopes: graphScopes,
+  scopes: graphReadScopes,
 };
 
 let msalInstance: PublicClientApplication | undefined;
@@ -64,7 +64,7 @@ export async function signOutMicrosoft365(account?: AccountInfo | null) {
   });
 }
 
-export async function acquireGraphToken(account?: AccountInfo | null) {
+export async function acquireGraphToken(account?: AccountInfo | null, scopes = graphReadScopes) {
   const msal = getMsalInstance();
   await msal.initialize();
   const activeAccount = account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0];
@@ -76,14 +76,14 @@ export async function acquireGraphToken(account?: AccountInfo | null) {
 
   try {
     const response = await msal.acquireTokenSilent({
-      ...loginRequest,
+      scopes,
       account: activeAccount,
     });
     return response.accessToken;
   } catch (error) {
     if (error instanceof InteractionRequiredAuthError) {
       const response = await msal.acquireTokenPopup({
-        ...loginRequest,
+        scopes,
         account: activeAccount,
       });
       return response.accessToken;
