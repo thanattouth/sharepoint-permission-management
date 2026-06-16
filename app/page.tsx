@@ -25,6 +25,7 @@ import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosof
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore } from "@/lib/audit-store-factory";
+import { createPermissionRequestStore } from "@/lib/permission-request-store-factory";
 import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
   graphReadScopes,
@@ -34,6 +35,7 @@ import {
   type SharePointPermissionClient,
 } from "@/lib/graph";
 import type { AuditStore } from "@/lib/audit-store";
+import type { PermissionRequestStore } from "@/lib/permission-request-store";
 import type {
   AccessRole,
   AuditEntry,
@@ -41,6 +43,7 @@ import type {
   AuditLogStatus,
   ContentItem,
   PermissionEntry,
+  PermissionRequestDraft,
   ReportSummary,
   SiteSummary,
   UserSuggestion,
@@ -69,6 +72,17 @@ type SavedSessionView = {
   view: AppHistoryView;
 };
 
+type PendingPermissionApproval =
+  | {
+      action: "GrantAccess";
+      draft: PermissionDraft;
+    }
+  | {
+      action: "UpdateRole";
+      permission: PermissionEntry;
+      requestedRole: AccessRole;
+    };
+
 const savedSessionViewKey = "spAccess:lastView";
 const signedOutMarkerKey = "spAccess:signedOut";
 
@@ -96,6 +110,7 @@ export default function Home() {
   const [authError, setAuthError] = useState("");
   const [dataError, setDataError] = useState("");
   const [dataConsentRequired, setDataConsentRequired] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<PendingPermissionApproval | null>(null);
   const [loadingLabel, setLoadingLabel] = useState("");
   const [restoringSession, setRestoringSession] = useState(true);
   const restoringHistoryRef = useRef(false);
@@ -108,6 +123,9 @@ export default function Home() {
   }, [account]);
   const writeGraphClient = useMemo<SharePointPermissionClient>(() => {
     return new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphWriteScopes));
+  }, [account]);
+  const permissionRequestStore = useMemo<PermissionRequestStore>(() => {
+    return createPermissionRequestStore(() => acquireGraphToken(account, graphWriteScopes));
   }, [account]);
 
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
@@ -555,79 +573,65 @@ export default function Home() {
       role: newRole,
     };
 
-    setDataError("");
-    setLoadingLabel("Granting permission");
-
-    try {
-      const created = await writeGraphClient.grantPermission(selectedItem, draft);
-      setPermissions((current) => [...created, ...current]);
-
-      addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email, "Success");
-      void writeAudit({
-        action: "GrantAccess",
-        status: "Success",
-        targetEmail: draft.email,
-        targetName: draft.displayName,
-        permissionRole: draft.role,
-        tenantType: isInternalEmail(draft.email) ? "internal" : "external",
-      });
-      setNewEmail("");
-      setUserSuggestions([]);
-    } catch (error) {
-      const message = getErrorMessage(error, "Unable to grant permission.");
-      setDataError(message);
-      addAudit("Grant failed", draft.email, "Failed");
-      void writeAudit({
-        action: "GrantAccess",
-        status: "Failed",
-        targetEmail: draft.email,
-        targetName: draft.displayName,
-        permissionRole: draft.role,
-        tenantType: isInternalEmail(draft.email) ? "internal" : "external",
-        errorMessage: message,
-        graphRequestId: extractGraphRequestId(message),
-      });
-    } finally {
-      setLoadingLabel("");
-    }
+    setPendingApproval({
+      action: "GrantAccess",
+      draft,
+    });
   }
 
   async function updateRole(permissionId: string, role: AccessRole) {
     const changed = permissions.find((permission) => permission.id === permissionId);
     if (!changed || changed.role === role) return;
 
+    setPendingApproval({
+      action: "UpdateRole",
+      permission: changed,
+      requestedRole: role,
+    });
+  }
+
+  async function submitPermissionApprovalRequest() {
+    if (!pendingApproval || !selectedItem) return;
+
     setDataError("");
-    setLoadingLabel("Updating role");
+    setLoadingLabel("Submitting approval request");
 
     try {
-      const updated = await writeGraphClient.updatePermissionRole(changed, role);
-      setPermissions((current) =>
-        current.map((permission) => (permission.id === permissionId ? updated : permission)),
-      );
-      addAudit(`Changed role to ${roleLabels[role]}`, changed.email, "Success");
+      const request = buildPermissionRequest(pendingApproval);
+      await permissionRequestStore.submit(request);
+
+      addAudit("Approval request submitted", request.targetEmail, "Success");
       void writeAudit({
-        action: "UpdateRole",
+        action: pendingApproval.action === "GrantAccess" ? "RequestGrantAccess" : "RequestUpdateRole",
         status: "Success",
-        targetEmail: changed.email,
-        targetName: changed.displayName,
-        permissionRole: role,
-        previousRole: changed.role,
-        source: changed.source,
-        tenantType: changed.tenant,
+        targetEmail: request.targetEmail,
+        targetName: request.targetName,
+        permissionRole: request.requestedRole,
+        previousRole: request.previousRole,
+        source: request.source,
+        tenantType: request.tenantType,
       });
+
+      if (pendingApproval.action === "GrantAccess") {
+        setNewEmail("");
+        setUserSuggestions([]);
+      }
+
+      setPendingApproval(null);
     } catch (error) {
-      const message = getErrorMessage(error, "Unable to update role.");
+      const request = buildPermissionRequest(pendingApproval);
+      const message = getErrorMessage(error, "Unable to submit approval request.");
       setDataError(message);
-      addAudit("Role update failed", changed.email, "Failed");
+      addAudit("Approval request failed", request.targetEmail, "Failed");
       void writeAudit({
-        action: "UpdateRole",
+        action: pendingApproval.action === "GrantAccess" ? "RequestGrantAccess" : "RequestUpdateRole",
         status: "Failed",
-        targetEmail: changed.email,
-        targetName: changed.displayName,
-        permissionRole: role,
-        previousRole: changed.role,
-        source: changed.source,
-        tenantType: changed.tenant,
+        targetEmail: request.targetEmail,
+        targetName: request.targetName,
+        permissionRole: request.requestedRole,
+        previousRole: request.previousRole,
+        source: request.source,
+        tenantType: request.tenantType,
         errorMessage: message,
         graphRequestId: extractGraphRequestId(message),
       });
@@ -674,6 +678,43 @@ export default function Home() {
     } finally {
       setLoadingLabel("");
     }
+  }
+
+  function buildPermissionRequest(approval: PendingPermissionApproval): PermissionRequestDraft {
+    const baseRequest = {
+      actorEmail: account?.username ?? accountLabel,
+      actorName: account?.name ?? accountLabel,
+      actorRole: roleLabel,
+      siteId: selectedSite?.id ?? selectedItem?.siteId,
+      siteName: selectedSite?.name,
+      libraryName: selectedItem?.name ?? path.at(-1)?.name,
+      itemId: selectedItem?.itemId ?? selectedItem?.id,
+      itemName: selectedItem?.name,
+      status: "Pending" as const,
+    };
+
+    if (approval.action === "GrantAccess") {
+      return {
+        ...baseRequest,
+        action: "GrantAccess",
+        targetEmail: approval.draft.email,
+        targetName: approval.draft.displayName,
+        requestedRole: approval.draft.role,
+        tenantType: isInternalEmail(approval.draft.email) ? "internal" : "external",
+      };
+    }
+
+    return {
+      ...baseRequest,
+      action: "UpdateRole",
+      targetEmail: approval.permission.email,
+      targetName: approval.permission.displayName,
+      requestedRole: approval.requestedRole,
+      previousRole: approval.permission.role,
+      permissionId: approval.permission.id,
+      source: approval.permission.source,
+      tenantType: approval.permission.tenant,
+    };
   }
 
   function addAudit(action: string, target: string, status: AuditLogStatus = "Success") {
@@ -1031,7 +1072,87 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {pendingApproval && (
+        <PermissionApprovalDialog
+          approval={pendingApproval}
+          loading={loadingLabel === "Submitting approval request"}
+          onCancel={() => setPendingApproval(null)}
+          onConfirm={submitPermissionApprovalRequest}
+        />
+      )}
     </main>
+  );
+}
+
+function PermissionApprovalDialog({
+  approval,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  approval: PendingPermissionApproval;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const isGrant = approval.action === "GrantAccess";
+  const targetEmail = isGrant ? approval.draft.email : approval.permission.email;
+  const targetName = isGrant ? approval.draft.displayName : approval.permission.displayName;
+  const requestedRole = isGrant ? approval.draft.role : approval.requestedRole;
+  const previousRole = isGrant ? undefined : approval.permission.role;
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="approval-dialog-title">
+        <div className="confirm-icon">
+          <ShieldCheck size={22} />
+        </div>
+        <div className="confirm-copy">
+          <p className="section-label">Approval Required</p>
+          <h2 id="approval-dialog-title">
+            {isGrant ? "Submit access grant request" : "Submit role change request"}
+          </h2>
+          <p>
+            This will create a pending approval request. Permissions will be applied only after the request is approved.
+          </p>
+        </div>
+
+        <dl className="confirm-summary">
+          <div>
+            <dt>Principal</dt>
+            <dd>
+              <strong>{targetName}</strong>
+              <span>{targetEmail}</span>
+            </dd>
+          </div>
+          {previousRole && (
+            <div>
+              <dt>Current role</dt>
+              <dd>{roleLabels[previousRole]}</dd>
+            </div>
+          )}
+          <div>
+            <dt>Requested role</dt>
+            <dd>{roleLabels[requestedRole]}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>Pending approval</dd>
+          </div>
+        </dl>
+
+        <div className="confirm-actions">
+          <button className="secondary-button" disabled={loading} type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="primary-button" disabled={loading} type="button" onClick={onConfirm}>
+            <Plus size={17} />
+            {loading ? "Submitting" : "Submit request"}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1515,7 +1636,11 @@ function AccessPanel({
   onUpdateRole: (permissionId: string, role: AccessRole) => void;
   onRemove: (permissionId: string) => void;
 }) {
-  const isLoadingPermissions = loadingLabel === "Loading permissions" || loadingLabel === "Removing permission" || loadingLabel === "Updating role";
+  const isLoadingPermissions =
+    loadingLabel === "Loading permissions" ||
+    loadingLabel === "Removing permission" ||
+    loadingLabel === "Updating role" ||
+    loadingLabel === "Submitting approval request";
   const externalGrantTarget = newEmail.includes("@") && !isInternalEmail(newEmail);
   const lockedCount = permissions.filter(
     (permission) => permission.canEditRole === false || permission.canDelete === false || permission.role === "owner",
@@ -1590,6 +1715,13 @@ function AccessPanel({
         </div>
       )}
 
+      {canManagePermissions && (
+        <div className="info-message approval-message">
+          <ShieldCheck size={18} />
+          <span>Grant and role changes are submitted for approval before permissions are applied.</span>
+        </div>
+      )}
+
       <div className="toolbar">
         <label className="search-box">
           <Search size={17} />
@@ -1661,9 +1793,9 @@ function AccessPanel({
               <option value="editor">Editor</option>
             </select>
           </label>
-          <button className="primary-button" type="submit">
+          <button className="primary-button" disabled={loadingLabel === "Submitting approval request"} type="submit">
             <Plus size={18} />
-            {loadingLabel === "Granting permission" ? "Granting" : "Grant"}
+            {loadingLabel === "Submitting approval request" ? "Submitting" : "Submit request"}
           </button>
         </form>
       )}
