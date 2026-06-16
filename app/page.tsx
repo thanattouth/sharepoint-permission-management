@@ -99,10 +99,10 @@ export default function Home() {
   const restoringHistoryRef = useRef(false);
 
   const graphClient = useMemo<SharePointPermissionClient>(() => {
-    return new GraphSharePointPermissionClient(() => acquireGraphToken(account));
+    return new GraphSharePointPermissionClient(() => acquireGraphToken(account, undefined, { allowPopup: false }));
   }, [account]);
   const auditStore = useMemo<AuditStore>(() => {
-    return createAuditStore(() => acquireGraphToken(account));
+    return createAuditStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
   }, [account]);
   const writeGraphClient = useMemo<SharePointPermissionClient>(() => {
     return new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphWriteScopes));
@@ -134,8 +134,13 @@ export default function Home() {
         const nextRoles = getAccountRoles(restoredAccount);
         if (nextRoles.length === 0) return;
 
-        const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(restoredAccount));
-        const nextSites = await nextClient.listSites();
+        const nextClient = new GraphSharePointPermissionClient(() =>
+          acquireGraphToken(restoredAccount, undefined, { allowPopup: false }),
+        );
+        const nextSites = await nextClient.listSites().catch((error) => {
+          setDataError(getErrorMessage(error, "Unable to load SharePoint sites."));
+          return [];
+        });
         if (cancelled) return;
 
         setSignedIn(true);
@@ -269,9 +274,14 @@ export default function Home() {
         return;
       }
 
-      const nextClient = new GraphSharePointPermissionClient(() => acquireGraphToken(response.account));
-      const nextSites = await nextClient.listSites();
-      const nextAuditStore = createAuditStore(() => acquireGraphToken(response.account));
+      const nextClient = new GraphSharePointPermissionClient(() =>
+        acquireGraphToken(response.account, undefined, { allowPopup: false }),
+      );
+      const nextSites = await nextClient.listSites().catch((error) => {
+        setDataError(getErrorMessage(error, "Unable to load SharePoint sites."));
+        return [];
+      });
+      const nextAuditStore = createAuditStore(() => acquireGraphToken(response.account, undefined, { allowPopup: false }));
       void writeAuditWithStore(nextAuditStore, {
         action: "Login",
         status: "Success",

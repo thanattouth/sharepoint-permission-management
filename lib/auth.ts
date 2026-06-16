@@ -25,7 +25,7 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest: PopupRequest = {
-  scopes: graphReadScopes,
+  scopes: ["User.Read"],
 };
 
 let msalInstance: PublicClientApplication | undefined;
@@ -64,7 +64,12 @@ export async function signOutMicrosoft365(account?: AccountInfo | null) {
   });
 }
 
-export async function acquireGraphToken(account?: AccountInfo | null, scopes = graphReadScopes) {
+export async function acquireGraphToken(
+  account?: AccountInfo | null,
+  scopes = graphReadScopes,
+  options: { allowPopup?: boolean } = {},
+) {
+  const allowPopup = options.allowPopup ?? true;
   const msal = getMsalInstance();
   await msal.initialize();
   const activeAccount = account ?? msal.getActiveAccount() ?? msal.getAllAccounts()[0];
@@ -82,6 +87,10 @@ export async function acquireGraphToken(account?: AccountInfo | null, scopes = g
     return response.accessToken;
   } catch (error) {
     if (error instanceof InteractionRequiredAuthError) {
+      if (!allowPopup) {
+        throw new Error("Additional Microsoft Graph consent is required before this data can be loaded.");
+      }
+
       const response = await msal.acquireTokenPopup({
         scopes,
         account: activeAccount,
