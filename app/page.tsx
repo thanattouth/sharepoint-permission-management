@@ -3,6 +3,7 @@
 import type { AccountInfo } from "@azure/msal-browser";
 import {
   ArrowLeft,
+  Check,
   ChevronRight,
   File,
   FileLock2,
@@ -71,6 +72,21 @@ type SavedSessionView = {
   view: AppHistoryView;
 };
 
+type PendingPermissionAction =
+  | {
+      type: "grant";
+      draft: PermissionDraft;
+    }
+  | {
+      type: "update";
+      permission: PermissionEntry;
+      role: Exclude<AccessRole, "owner">;
+    }
+  | {
+      type: "remove";
+      permission: PermissionEntry;
+    };
+
 const savedSessionViewKey = "spAccess:lastView";
 const signedOutMarkerKey = "spAccess:signedOut";
 
@@ -93,6 +109,7 @@ export default function Home() {
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<AccessRole>("viewer");
   const [approvalRequestNo, setApprovalRequestNo] = useState("");
+  const [pendingPermissionAction, setPendingPermissionAction] = useState<PendingPermissionAction | null>(null);
   const [userSuggestions, setUserSuggestions] = useState<UserSuggestion[]>([]);
   const [suggestionError, setSuggestionError] = useState("");
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -283,6 +300,7 @@ export default function Home() {
         setAuthError("Your account is signed in but has no app role assigned. Ask an administrator to assign Admin, Reviewer, InternalUser, GuestUser, or ExecutiveUser.");
         return;
       }
+      const nextCapabilities = getCapabilities(nextRoles);
 
       const nextClient = new GraphSharePointPermissionClient(() =>
         acquireGraphToken(response.account, undefined, { allowPopup: false }),
@@ -299,14 +317,30 @@ export default function Home() {
         actorName: response.account?.name ?? response.account?.username ?? "Microsoft 365 user",
         actorRole: getRoleLabel(getPrimaryRole(nextRoles)),
       });
+      const initialPortalView: PortalView = nextCapabilities.canManagePermissions
+        ? "workspace"
+        : nextCapabilities.canViewReports
+          ? "reports"
+          : nextCapabilities.canViewAudit
+            ? "audit"
+            : "workspace";
+      const initialReportSummary = initialPortalView === "reports"
+        ? await nextClient.getReportSummary().catch(() => null)
+        : null;
+      const initialAuditRecords = initialPortalView === "audit"
+        ? await nextAuditStore.list(100).catch(() => [])
+        : [];
 
       setSignedIn(true);
       setAccount(response.account);
       setAccountLabel(response.account?.username ?? "Microsoft 365 Admin");
       setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
       setSites(nextSites);
+      setPortalView(initialPortalView);
+      setReportSummary(initialReportSummary);
+      setAuditRecords(initialAuditRecords);
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
-      saveSessionView({ portalView: "workspace", view: { selectedSite: null, path: [], selectedItem: null } });
+      saveSessionView({ portalView: initialPortalView, view: { selectedSite: null, path: [], selectedItem: null } });
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Unable to connect Microsoft 365.");
     } finally {
@@ -582,17 +616,77 @@ export default function Home() {
   async function addPermission(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedItem || !newEmail.trim()) return;
-    const approvedRequestNo = approvalRequestNo.trim();
-    if (!approvedRequestNo) {
-      setDataError("Approval request number is required before changing permissions.");
-      return;
-    }
 
     const draft: PermissionDraft = {
       displayName: newEmail.trim(),
       email: newEmail.trim(),
       role: newRole,
     };
+
+    openPermissionConfirmation({
+      type: "grant",
+      draft,
+    });
+  }
+
+  function updateRole(permissionId: string, role: Exclude<AccessRole, "owner">) {
+    const changed = permissions.find((permission) => permission.id === permissionId);
+    if (!changed || changed.role === role) return;
+
+    openPermissionConfirmation({
+      type: "update",
+      permission: changed,
+      role,
+    });
+  }
+
+  function removePermission(permissionId: string) {
+    const removed = permissions.find((permission) => permission.id === permissionId);
+    if (!removed) return;
+
+    openPermissionConfirmation({
+      type: "remove",
+      permission: removed,
+    });
+  }
+
+  function openPermissionConfirmation(action: PendingPermissionAction) {
+    setDataError("");
+    setApprovalRequestNo("");
+    setPendingPermissionAction(action);
+  }
+
+  function closePermissionConfirmation() {
+    if (isPermissionActionLoading()) return;
+    setPendingPermissionAction(null);
+    setApprovalRequestNo("");
+    setDataError("");
+  }
+
+  async function confirmPermissionAction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!pendingPermissionAction) return;
+    const approvedRequestNo = approvalRequestNo.trim();
+    if (!approvedRequestNo) {
+      setDataError("Approval request number is required before changing permissions.");
+      return;
+    }
+
+    if (pendingPermissionAction.type === "grant") {
+      await grantPermission(pendingPermissionAction.draft, approvedRequestNo);
+      return;
+    }
+
+    if (pendingPermissionAction.type === "update") {
+      await applyRoleUpdate(pendingPermissionAction.permission, pendingPermissionAction.role, approvedRequestNo);
+      return;
+    }
+
+    await applyPermissionRemoval(pendingPermissionAction.permission, approvedRequestNo);
+  }
+
+  async function grantPermission(draft: PermissionDraft, approvedRequestNo: string) {
+    if (!selectedItem) return;
 
     setDataError("");
     setLoadingLabel("Granting permission");
@@ -613,6 +707,8 @@ export default function Home() {
       });
       setNewEmail("");
       setUserSuggestions([]);
+      setPendingPermissionAction(null);
+      setApprovalRequestNo("");
     } catch (error) {
       const message = getErrorMessage(error, "Unable to grant permission.");
       setDataError(message);
@@ -633,22 +729,14 @@ export default function Home() {
     }
   }
 
-  async function updateRole(permissionId: string, role: AccessRole) {
-    const changed = permissions.find((permission) => permission.id === permissionId);
-    if (!changed || changed.role === role) return;
-    const approvedRequestNo = approvalRequestNo.trim();
-    if (!approvedRequestNo) {
-      setDataError("Approval request number is required before changing permissions.");
-      return;
-    }
-
+  async function applyRoleUpdate(changed: PermissionEntry, role: Exclude<AccessRole, "owner">, approvedRequestNo: string) {
     setDataError("");
     setLoadingLabel("Updating role");
 
     try {
       const updated = await writeGraphClient.updatePermissionRole(changed, role);
       setPermissions((current) =>
-        current.map((permission) => (permission.id === permissionId ? updated : permission)),
+        current.map((permission) => (permission.id === changed.id ? updated : permission)),
       );
       addAudit(`Changed role to ${roleLabels[role]}`, changed.email, "Success");
       void writeAudit({
@@ -662,6 +750,8 @@ export default function Home() {
         source: changed.source,
         tenantType: changed.tenant,
       });
+      setPendingPermissionAction(null);
+      setApprovalRequestNo("");
     } catch (error) {
       const message = getErrorMessage(error, "Unable to update role.");
       setDataError(message);
@@ -684,21 +774,13 @@ export default function Home() {
     }
   }
 
-  async function removePermission(permissionId: string) {
-    const removed = permissions.find((permission) => permission.id === permissionId);
-    if (!removed) return;
-    const approvedRequestNo = approvalRequestNo.trim();
-    if (!approvedRequestNo) {
-      setDataError("Approval request number is required before changing permissions.");
-      return;
-    }
-
+  async function applyPermissionRemoval(removed: PermissionEntry, approvedRequestNo: string) {
     setDataError("");
     setLoadingLabel("Removing permission");
 
     try {
       await writeGraphClient.removePermission(removed);
-      setPermissions((current) => current.filter((permission) => permission.id !== permissionId));
+      setPermissions((current) => current.filter((permission) => permission.id !== removed.id));
       addAudit("Removed permission", removed.email, "Success");
       void writeAudit({
         action: "RemoveAccess",
@@ -710,6 +792,8 @@ export default function Home() {
         source: removed.source,
         tenantType: removed.tenant,
       });
+      setPendingPermissionAction(null);
+      setApprovalRequestNo("");
     } catch (error) {
       const message = getErrorMessage(error, "Unable to remove permission.");
       setDataError(message);
@@ -729,6 +813,10 @@ export default function Home() {
     } finally {
       setLoadingLabel("");
     }
+  }
+
+  function isPermissionActionLoading() {
+    return loadingLabel === "Granting permission" || loadingLabel === "Updating role" || loadingLabel === "Removing permission";
   }
 
   function addAudit(action: string, target: string, status: AuditLogStatus = "Success") {
@@ -880,24 +968,39 @@ export default function Home() {
 
   async function restoreSavedSessionView(client: SharePointPermissionClient, store: AuditStore, roles: ReturnType<typeof getAccountRoles>) {
     const saved = readSavedSessionView();
+    const roleCapabilities = getCapabilities(roles);
     if (!saved) {
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
+      if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewReports) {
+        setPortalView("reports");
+        setReportSummary(await client.getReportSummary());
+      } else if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewAudit) {
+        setPortalView("audit");
+        setAuditRecords(await store.list(100));
+      }
       return;
     }
 
     restoringHistoryRef.current = true;
-    setPortalView(saved.portalView);
+    const restoredPortalView = saved.portalView === "workspace" && !roleCapabilities.canManagePermissions
+      ? roleCapabilities.canViewReports
+        ? "reports"
+        : roleCapabilities.canViewAudit
+          ? "audit"
+          : "workspace"
+      : saved.portalView;
+    setPortalView(restoredPortalView);
     setSelectedSite(saved.view.selectedSite);
     setPath(saved.view.path);
     setSelectedItem(saved.view.selectedItem);
 
     try {
-      if (saved.portalView === "reports") {
+      if (restoredPortalView === "reports") {
         setReportSummary(await client.getReportSummary());
         return;
       }
 
-      if (saved.portalView === "audit") {
+      if (restoredPortalView === "audit") {
         setAuditRecords(await store.list(100));
         return;
       }
@@ -983,17 +1086,15 @@ export default function Home() {
         </div>
 
         <nav className="sidebar-nav">
-          <button
-            className={`sidebar-nav-item ${portalView === "workspace" && !selectedSite ? "active" : ""}`}
-            onClick={returnToSites}
-          >
-            <HomeIcon size={18} />
-            Sites
-          </button>
-          <button className={`sidebar-nav-item ${portalView === "workspace" && selectedSite ? "active" : ""}`} disabled={!selectedSite}>
-            <Library size={18} />
-            Site contents
-          </button>
+          {capabilities.canManagePermissions && (
+            <button
+              className={`sidebar-nav-item ${portalView === "workspace" ? "active" : ""}`}
+              onClick={returnToSites}
+            >
+              <HomeIcon size={18} />
+              Admin
+            </button>
+          )}
           {capabilities.canViewReports && (
             <button className={`sidebar-nav-item ${portalView === "reports" ? "active" : ""}`} onClick={openReports}>
               <BarChart3 size={18} />
@@ -1075,7 +1176,6 @@ export default function Home() {
               query={query}
               newEmail={newEmail}
               newRole={newRole}
-              approvalRequestNo={approvalRequestNo}
               userSuggestions={userSuggestions}
               suggestionsLoading={suggestionsLoading}
               suggestionError={suggestionError}
@@ -1086,7 +1186,6 @@ export default function Home() {
               onRefresh={refreshCurrentView}
               onQueryChange={setQuery}
               onEmailChange={setNewEmail}
-              onApprovalRequestNoChange={setApprovalRequestNo}
               onSelectUserSuggestion={selectUserSuggestion}
               onRoleChange={setNewRole}
               onGrant={addPermission}
@@ -1114,6 +1213,18 @@ export default function Home() {
         </div>
       </section>
 
+      {pendingPermissionAction && (
+        <PermissionActionDialog
+          action={pendingPermissionAction}
+          approvalRequestNo={approvalRequestNo}
+          error={dataError}
+          isSubmitting={isPermissionActionLoading()}
+          onApprovalRequestNoChange={setApprovalRequestNo}
+          onCancel={closePermissionConfirmation}
+          onConfirm={confirmPermissionAction}
+        />
+      )}
+
     </main>
   );
 }
@@ -1139,9 +1250,9 @@ function SitePicker({
     <section className="page-section">
       <div className="site-picker-hero">
         <div>
-        <p className="section-label">Workspace Selection</p>
-        <h1>Sites</h1>
-        <p>Choose the SharePoint site you want to review.</p>
+        <p className="section-label">Admin</p>
+        <h1>Permission Management</h1>
+        <p>Choose the SharePoint site where you want to review or change access.</p>
         </div>
       </div>
 
@@ -1415,6 +1526,81 @@ function AuditPanel({
   );
 }
 
+function PermissionActionDialog({
+  action,
+  approvalRequestNo,
+  error,
+  isSubmitting,
+  onApprovalRequestNoChange,
+  onCancel,
+  onConfirm,
+}: {
+  action: PendingPermissionAction;
+  approvalRequestNo: string;
+  error: string;
+  isSubmitting: boolean;
+  onApprovalRequestNoChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const summary = getPermissionActionSummary(action);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="confirm-dialog permission-confirm-dialog" onSubmit={onConfirm}>
+        <div className={`confirm-icon ${action.type === "remove" ? "danger" : ""}`}>
+          {action.type === "remove" ? <Trash2 size={22} /> : <ShieldCheck size={22} />}
+        </div>
+        <div className="confirm-copy">
+          <p className="section-label">Approval Reference</p>
+          <h2>{summary.title}</h2>
+          <p>{summary.description}</p>
+        </div>
+
+        <dl className="confirm-summary">
+          <div>
+            <dt>Target</dt>
+            <dd>
+              <strong>{summary.targetName}</strong>
+              <span>{summary.targetEmail}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Change</dt>
+            <dd>
+              <strong>{summary.change}</strong>
+              {summary.previousRole && <span>Current role: {summary.previousRole}</span>}
+            </dd>
+          </div>
+        </dl>
+
+        <label className="approval-field">
+          <span>Approved request no.</span>
+          <input
+            autoFocus
+            aria-label="Approved request number"
+            onChange={(event) => onApprovalRequestNoChange(event.target.value)}
+            placeholder="e.g. REQ-2026-0001"
+            value={approvalRequestNo}
+          />
+        </label>
+
+        {error && <div className="auth-error confirm-error">{error}</div>}
+
+        <div className="confirm-actions">
+          <button className="secondary-button" disabled={isSubmitting} type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className={`primary-button ${action.type === "remove" ? "danger-primary" : ""}`} disabled={isSubmitting || !approvalRequestNo.trim()} type="submit">
+            {action.type === "remove" ? <Trash2 size={17} /> : <Check size={17} />}
+            {isSubmitting ? summary.submittingLabel : summary.confirmLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function ReportMetric({
   label,
   value,
@@ -1475,7 +1661,7 @@ function ContentExplorer({
         <div>
           <p className="section-label">SharePoint Workspace</p>
           <h1>{path.at(-1)?.name ?? `${site.name} Contents`}</h1>
-          <p>{path.length ? "Open a folder or manage access for this location." : "Review libraries available in this site."}</p>
+          <p>{path.length ? "Open a folder or manage access for this location." : "Review libraries available for admin permission management."}</p>
         </div>
         <button className="icon-button" disabled={isLoadingContents} title="Refresh" onClick={onRefresh}>
           <RefreshCw className={isLoadingContents ? "spin-icon" : ""} size={17} />
@@ -1634,7 +1820,6 @@ function AccessPanel({
   query,
   newEmail,
   newRole,
-  approvalRequestNo,
   userSuggestions,
   suggestionsLoading,
   suggestionError,
@@ -1645,7 +1830,6 @@ function AccessPanel({
   onRefresh,
   onQueryChange,
   onEmailChange,
-  onApprovalRequestNoChange,
   onSelectUserSuggestion,
   onRoleChange,
   onGrant,
@@ -1657,7 +1841,6 @@ function AccessPanel({
   query: string;
   newEmail: string;
   newRole: AccessRole;
-  approvalRequestNo: string;
   userSuggestions: UserSuggestion[];
   suggestionsLoading: boolean;
   suggestionError: string;
@@ -1668,11 +1851,10 @@ function AccessPanel({
   onRefresh: () => void;
   onQueryChange: (value: string) => void;
   onEmailChange: (value: string) => void;
-  onApprovalRequestNoChange: (value: string) => void;
   onSelectUserSuggestion: (user: UserSuggestion) => void;
   onRoleChange: (value: AccessRole) => void;
   onGrant: (event: FormEvent<HTMLFormElement>) => void;
-  onUpdateRole: (permissionId: string, role: AccessRole) => void;
+  onUpdateRole: (permissionId: string, role: Exclude<AccessRole, "owner">) => void;
   onRemove: (permissionId: string) => void;
 }) {
   const isLoadingPermissions =
@@ -1680,7 +1862,6 @@ function AccessPanel({
     loadingLabel === "Removing permission" ||
     loadingLabel === "Updating role" ||
     loadingLabel === "Granting permission";
-  const approvalRequestNoMissing = canManagePermissions && !approvalRequestNo.trim();
   const externalGrantTarget = newEmail.includes("@") && !isInternalEmail(newEmail);
   const lockedCount = permissions.filter(
     (permission) => permission.canEditRole === false || permission.canDelete === false || permission.role === "owner",
@@ -1758,21 +1939,7 @@ function AccessPanel({
       {canManagePermissions && (
         <div className="info-message approval-message">
           <ShieldCheck size={18} />
-          <span>Enter the approved request number before changing permissions. It will be stored in the audit trail.</span>
-        </div>
-      )}
-
-      {canManagePermissions && (
-        <div className="approval-reference-panel">
-          <label>
-            <span>Approved request no.</span>
-            <input
-              aria-label="Approved request number"
-              onChange={(event) => onApprovalRequestNoChange(event.target.value)}
-              placeholder="e.g. REQ-2026-0001"
-              value={approvalRequestNo}
-            />
-          </label>
+          <span>Permission changes require confirmation with an approved request number.</span>
         </div>
       )}
 
@@ -1847,9 +2014,9 @@ function AccessPanel({
               <option value="editor">Editor</option>
             </select>
           </label>
-          <button className="primary-button" disabled={approvalRequestNoMissing || loadingLabel === "Granting permission"} type="submit">
+          <button className="primary-button" disabled={loadingLabel === "Granting permission"} type="submit">
             <Plus size={18} />
-            {loadingLabel === "Granting permission" ? "Granting" : "Grant"}
+            {loadingLabel === "Granting permission" ? "Granting" : "Review grant"}
           </button>
         </form>
       )}
@@ -1906,7 +2073,7 @@ function PermissionTable({
   emptyText: string;
   isLoading?: boolean;
   canManagePermissions: boolean;
-  onUpdateRole: (permissionId: string, role: AccessRole) => void;
+  onUpdateRole: (permissionId: string, role: Exclude<AccessRole, "owner">) => void;
   onRemove: (permissionId: string) => void;
 }) {
   return (
@@ -1916,7 +2083,7 @@ function PermissionTable({
         <span>Role</span>
         <span>Source</span>
         <span>Activity</span>
-        <span>Remove</span>
+        <span>Action</span>
       </div>
       {isLoading ? (
         <TableSkeleton columns={5} rows={4} />
@@ -1931,34 +2098,42 @@ function PermissionTable({
               <small>{permission.email}</small>
             </span>
           </div>
-          <select
-            aria-label={`Role for ${permission.displayName}`}
-            className={`role-select ${permission.role}`}
-            disabled={!canManagePermissions || permission.role === "owner" || permission.canEditRole === false}
-            onChange={(event) => onUpdateRole(permission.id, event.target.value as AccessRole)}
-            value={permission.role}
-          >
-            <option value="viewer">{roleLabels.viewer}</option>
-            <option value="editor">{roleLabels.editor}</option>
-            <option value="owner">{roleLabels.owner}</option>
-          </select>
+          <span className={`role-chip role-display ${permission.role}`} data-label="Role">{roleLabels[permission.role]}</span>
           <span className="muted" data-label="Source">{permission.source}</span>
           <span className="muted" data-label="Activity">{permission.lastActivity}</span>
-          <div className="row-actions" data-label="Remove">
+          <div className="row-actions" data-label="Action">
             {!canManagePermissions ? (
               <span className="locked-badge">Read-only</span>
             ) : permission.canDelete === false ? (
               <span className="locked-badge">{permission.source === "inherited" ? "Inherited" : "Managed"}</span>
             ) : (
-              <button
-                className="remove-access-button"
-                title="Remove this direct permission"
-                type="button"
-                onClick={() => onRemove(permission.id)}
-              >
-                <Trash2 size={15} />
-                Remove access
-              </button>
+              <>
+                <button
+                  className="permission-action-button viewer"
+                  disabled={permission.role === "viewer" || permission.canEditRole === false}
+                  type="button"
+                  onClick={() => onUpdateRole(permission.id, "viewer")}
+                >
+                  Viewer
+                </button>
+                <button
+                  className="permission-action-button editor"
+                  disabled={permission.role === "editor" || permission.canEditRole === false}
+                  type="button"
+                  onClick={() => onUpdateRole(permission.id, "editor")}
+                >
+                  Editor
+                </button>
+                <button
+                  className="permission-action-button danger"
+                  title="Remove this direct permission"
+                  type="button"
+                  onClick={() => onRemove(permission.id)}
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -2083,6 +2258,45 @@ function formatAuditAction(action: AuditLogAction, role?: AccessRole, previousRo
   if (action === "RemoveAccess") return "Remove access";
   if (action === "RefreshReport") return "Refresh review";
   return "Login";
+}
+
+function getPermissionActionSummary(action: PendingPermissionAction) {
+  if (action.type === "grant") {
+    return {
+      title: "Confirm grant access",
+      description: "Enter the approved request number before granting direct access.",
+      targetName: action.draft.displayName,
+      targetEmail: action.draft.email,
+      change: `Grant ${roleLabels[action.draft.role]}`,
+      previousRole: undefined,
+      confirmLabel: "Grant access",
+      submittingLabel: "Granting",
+    };
+  }
+
+  if (action.type === "update") {
+    return {
+      title: "Confirm role update",
+      description: "Enter the approved request number before changing this permission.",
+      targetName: action.permission.displayName,
+      targetEmail: action.permission.email,
+      change: `Change to ${roleLabels[action.role]}`,
+      previousRole: roleLabels[action.permission.role],
+      confirmLabel: "Update role",
+      submittingLabel: "Updating",
+    };
+  }
+
+  return {
+    title: "Confirm remove access",
+    description: "Enter the approved request number before removing this direct permission.",
+    targetName: action.permission.displayName,
+    targetEmail: action.permission.email,
+    change: "Remove direct access",
+    previousRole: roleLabels[action.permission.role],
+    confirmLabel: "Remove access",
+    submittingLabel: "Removing",
+  };
 }
 
 function getInitials(label: string) {

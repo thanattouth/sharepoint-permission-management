@@ -428,6 +428,14 @@ h2 {
   background: var(--blue-deep);
 }
 
+.primary-button.danger-primary {
+  background: var(--danger);
+}
+
+.primary-button.danger-primary:hover {
+  background: #8f1111;
+}
+
 .login-button:active,
 .primary-button:active,
 .avatar-button:active {
@@ -498,6 +506,16 @@ h2 {
   width: 44px;
 }
 
+.confirm-icon.danger {
+  background: var(--danger-soft);
+  border-color: #f0c6c6;
+  color: var(--danger);
+}
+
+.permission-confirm-dialog {
+  max-width: 560px;
+}
+
 .confirm-copy {
   display: grid;
   gap: 8px;
@@ -555,6 +573,34 @@ h2 {
 .confirm-summary span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.approval-field {
+  display: grid;
+  gap: 7px;
+}
+
+.approval-field span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approval-field input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.approval-field input:focus {
+  border-color: var(--blue);
+  outline: 3px solid rgba(0, 96, 171, 0.12);
+}
+
+.confirm-error {
+  margin: 0;
 }
 
 .confirm-actions {
@@ -1611,8 +1657,8 @@ h2 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(210px, 1.4fr) 128px 96px 132px 132px;
-  min-width: 760px;
+  grid-template-columns: minmax(230px, 1.4fr) 110px 100px 130px minmax(250px, 1.2fr);
+  min-width: 840px;
   padding: 12px;
 }
 
@@ -1682,7 +1728,49 @@ h2 {
 .row-actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.permission-action-button {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
   gap: 6px;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 10px;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
+}
+
+.permission-action-button.viewer {
+  background: #f4f9ff;
+  color: #0b5da8;
+}
+
+.permission-action-button.editor {
+  background: #eef7f1;
+  color: #1d7440;
+}
+
+.permission-action-button.danger {
+  background: #ffffff;
+  border-color: #f0c6c6;
+  color: var(--danger);
+}
+
+.permission-action-button:hover:not(:disabled) {
+  border-color: #bad6f3;
+  transform: translateY(-1px);
+}
+
+.permission-action-button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: #e89b9b;
 }
 
 .remove-access-button {
@@ -1744,7 +1832,10 @@ h2 {
 }
 
 .mini-button:disabled,
-.role-select:disabled {
+.role-select:disabled,
+.permission-action-button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -2448,13 +2539,17 @@ h2 {
   }
 
   .table-row > .muted,
+  .role-display,
   .row-actions {
     align-items: center;
     display: flex;
     justify-content: space-between;
+    max-width: none;
+    width: 100%;
   }
 
   .table-row > .muted::before,
+  .role-display::before,
   .row-actions::before {
     color: var(--muted);
     content: attr(data-label);
@@ -2463,17 +2558,13 @@ h2 {
     text-transform: uppercase;
   }
 
-  .role-select {
-    width: 100%;
-  }
-
   .row-actions {
     flex-wrap: wrap;
     gap: 8px;
   }
 
-  .remove-access-button {
-    flex: 1 1 160px;
+  .permission-action-button {
+    flex: 1 1 92px;
     min-width: 0;
   }
 
