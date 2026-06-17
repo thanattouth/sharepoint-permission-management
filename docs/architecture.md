@@ -139,7 +139,7 @@ erDiagram
 | --- | --- | --- | --- | --- |
 | Admin | Yes | Yes | Yes | Must enter approved request number before permission changes. |
 | Reviewer | No | Yes | Yes | Read-only review and audit access. |
-| Executive / Read-only | No | Yes | Optional | Can map to Reviewer depending on customer role design. |
+| ExecutiveUser | No | Yes | Yes | Backward-compatible read-only role that maps to Reviewer behavior. |
 
 ## Implementation Impact
 

@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  ScrollText,
   Trash2,
   UserRound,
   UsersRound,
@@ -37,6 +38,7 @@ import type { AuditStore } from "@/lib/audit-store";
 import type {
   AccessRole,
   AuditEntry,
+  AuditLogRecord,
   AuditLogAction,
   AuditLogStatus,
   ContentItem,
@@ -62,7 +64,7 @@ type AppHistoryState = {
   spAccessView?: AppHistoryView;
 };
 
-type PortalView = "workspace" | "reports";
+type PortalView = "workspace" | "reports" | "audit";
 
 type SavedSessionView = {
   portalView: PortalView;
@@ -85,6 +87,8 @@ export default function Home() {
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [permissions, setPermissions] = useState<PermissionEntry[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditRecords, setAuditRecords] = useState<AuditLogRecord[]>([]);
+  const [auditError, setAuditError] = useState("");
   const [query, setQuery] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<AccessRole>("viewer");
@@ -152,7 +156,8 @@ export default function Home() {
         setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
         setSites(nextSites);
 
-        await restoreSavedSessionView(nextClient, nextRoles);
+        const nextAuditStore = createAuditStore(() => acquireGraphToken(restoredAccount, undefined, { allowPopup: false }));
+        await restoreSavedSessionView(nextClient, nextAuditStore, nextRoles);
       } catch {
         clearSavedSessionView();
       } finally {
@@ -275,7 +280,7 @@ export default function Home() {
 
       const nextRoles = getAccountRoles(response.account);
       if (nextRoles.length === 0) {
-        setAuthError("Your account is signed in but has no app role assigned. Ask an administrator to assign Admin, InternalUser, GuestUser, or ExecutiveUser.");
+        setAuthError("Your account is signed in but has no app role assigned. Ask an administrator to assign Admin, Reviewer, InternalUser, GuestUser, or ExecutiveUser.");
         return;
       }
 
@@ -327,6 +332,8 @@ export default function Home() {
     setDataError("");
     setReportSummary(null);
     setReportError("");
+    setAuditRecords([]);
+    setAuditError("");
     window.sessionStorage.setItem(signedOutMarkerKey, "true");
     clearSavedSessionView();
     replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
@@ -380,6 +387,31 @@ export default function Home() {
         status: "Failed",
         errorMessage: getErrorMessage(error),
       });
+    } finally {
+      setLoadingLabel("");
+    }
+  }
+
+  async function openAudit() {
+    if (!capabilities.canViewAudit) return;
+
+    setPortalView("audit");
+    setSelectedSite(null);
+    setContents([]);
+    setPath([]);
+    setSelectedItem(null);
+    setPermissions([]);
+    setQuery("");
+    setDataError("");
+    setDataConsentRequired(false);
+    setAuditError("");
+    setLoadingLabel("Loading audit");
+
+    try {
+      setAuditRecords(await auditStore.list(100));
+    } catch (error) {
+      setAuditRecords([]);
+      setAuditError(error instanceof Error ? error.message : "Unable to load audit trail.");
     } finally {
       setLoadingLabel("");
     }
@@ -729,6 +761,11 @@ export default function Home() {
         setReportSummary(await consentClient.getReportSummary());
         setReportError("");
       }
+
+      if (portalView === "audit" && capabilities.canViewAudit) {
+        setAuditRecords(await auditStore.list(100));
+        setAuditError("");
+      }
     } catch (error) {
       handleSharePointDataError(error);
     } finally {
@@ -841,7 +878,7 @@ export default function Home() {
     return filterContentItemsForRoles(rootContents, appRoles);
   }
 
-  async function restoreSavedSessionView(client: SharePointPermissionClient, roles: ReturnType<typeof getAccountRoles>) {
+  async function restoreSavedSessionView(client: SharePointPermissionClient, store: AuditStore, roles: ReturnType<typeof getAccountRoles>) {
     const saved = readSavedSessionView();
     if (!saved) {
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
@@ -857,6 +894,11 @@ export default function Home() {
     try {
       if (saved.portalView === "reports") {
         setReportSummary(await client.getReportSummary());
+        return;
+      }
+
+      if (saved.portalView === "audit") {
+        setAuditRecords(await store.list(100));
         return;
       }
 
@@ -955,7 +997,13 @@ export default function Home() {
           {capabilities.canViewReports && (
             <button className={`sidebar-nav-item ${portalView === "reports" ? "active" : ""}`} onClick={openReports}>
               <BarChart3 size={18} />
-              Reports
+              Reviewer
+            </button>
+          )}
+          {capabilities.canViewAudit && (
+            <button className={`sidebar-nav-item ${portalView === "audit" ? "active" : ""}`} onClick={openAudit}>
+              <ScrollText size={18} />
+              Audit
             </button>
           )}
         </nav>
@@ -1003,6 +1051,13 @@ export default function Home() {
               report={reportSummary}
               reportError={reportError}
               onRefresh={openReports}
+            />
+          ) : portalView === "audit" ? (
+            <AuditPanel
+              auditRecords={auditRecords}
+              auditError={auditError}
+              loadingLabel={loadingLabel}
+              onRefresh={openAudit}
             />
           ) : !selectedSite ? (
             <SitePicker
@@ -1167,13 +1222,13 @@ function ReportsPanel({
     <section className="page-section">
       <div className="page-header with-actions">
         <div>
-          <p className="section-label">Executive Report</p>
-          <h1>Permission Overview</h1>
-          <p>Read-only summary across configured SharePoint sites.</p>
+          <p className="section-label">Reviewer</p>
+          <h1>Permission Review</h1>
+          <p>Read-only inventory summary across configured SharePoint sites.</p>
         </div>
         <button className="secondary-button" disabled={isLoadingReport} onClick={onRefresh}>
           <RefreshCw className={isLoadingReport ? "spin-icon" : ""} size={17} />
-          Refresh report
+          Refresh review
         </button>
       </div>
 
@@ -1282,6 +1337,79 @@ function ReportsPanel({
 
       {!report && !reportError && loadingLabel !== "Loading reports" && (
         <div className="empty-row site-empty-state">No report data loaded.</div>
+      )}
+    </section>
+  );
+}
+
+function AuditPanel({
+  auditRecords,
+  auditError,
+  loadingLabel,
+  onRefresh,
+}: {
+  auditRecords: AuditLogRecord[];
+  auditError: string;
+  loadingLabel: string;
+  onRefresh: () => void;
+}) {
+  const isLoadingAudit = loadingLabel === "Loading audit";
+
+  return (
+    <section className="page-section">
+      <div className="page-header with-actions">
+        <div>
+          <p className="section-label">Audit</p>
+          <h1>Permission Audit Trail</h1>
+          <p>Track who changed permissions, what changed, where it changed, and the approved request number used as reference.</p>
+        </div>
+        <button className="secondary-button" disabled={isLoadingAudit} onClick={onRefresh}>
+          <RefreshCw className={isLoadingAudit ? "spin-icon" : ""} size={17} />
+          Refresh audit
+        </button>
+      </div>
+
+      {auditError && <div className="auth-error">{auditError}</div>}
+
+      {isLoadingAudit ? (
+        <div className="audit-table">
+          <TableSkeleton columns={7} rows={6} />
+        </div>
+      ) : (
+        <div className="audit-table" role="table" aria-label="Permission audit trail">
+          <div className="audit-table-head" role="row">
+            <span>Time</span>
+            <span>Action</span>
+            <span>Actor</span>
+            <span>Target</span>
+            <span>Scope</span>
+            <span>Request no.</span>
+            <span>Status</span>
+          </div>
+          {auditRecords.map((entry) => (
+            <div className="audit-table-row" role="row" key={entry.id}>
+              <span>{formatAuditTime(entry.createdAt)}</span>
+              <strong>{formatAuditAction(entry.action, entry.permissionRole, entry.previousRole)}</strong>
+              <div>
+                <strong>{entry.actorName || entry.actorEmail || "Unknown"}</strong>
+                <small>{entry.actorRole || entry.actorEmail}</small>
+              </div>
+              <div>
+                <strong>{entry.targetName || entry.targetEmail || "-"}</strong>
+                <small>{entry.targetEmail}</small>
+              </div>
+              <div>
+                <strong>{entry.libraryName || "-"}</strong>
+                <small>{entry.siteName}</small>
+              </div>
+              <span className={entry.approvalRequestNo ? "request-ref" : "muted"}>{entry.approvalRequestNo || "-"}</span>
+              <span className={`status-chip ${entry.status === "Failed" ? "failed" : "success"}`}>{entry.status}</span>
+            </div>
+          ))}
+          {auditRecords.length === 0 && !auditError && (
+            <div className="empty-row">No audit entries found.</div>
+          )}
+        </div>
       )}
     </section>
   );
@@ -1937,6 +2065,24 @@ function formatBytes(bytes: number) {
   const units = ["B", "KB", "MB", "GB"];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${Math.round((bytes / 1024 ** index) * 10) / 10} ${units[index]}`;
+}
+
+function formatAuditTime(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function formatAuditAction(action: AuditLogAction, role?: AccessRole, previousRole?: AccessRole) {
+  if (action === "GrantAccess") return role ? `Grant ${roleLabels[role]}` : "Grant access";
+  if (action === "UpdateRole") {
+    const nextRole = role ? roleLabels[role] : "role";
+    return previousRole ? `${roleLabels[previousRole]} to ${nextRole}` : `Update to ${nextRole}`;
+  }
+  if (action === "RemoveAccess") return "Remove access";
+  if (action === "RefreshReport") return "Refresh review";
+  return "Login";
 }
 
 function getInitials(label: string) {

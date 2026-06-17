@@ -1,6 +1,6 @@
 import { auditListName, auditSite } from "./app-config";
 import type { GraphCollection, GraphRequestClient } from "./graph-request";
-import type { AuditLogDraft } from "./types";
+import type { AccessRole, AuditLogAction, AuditLogDraft, AuditLogRecord, AuditLogStatus, PermissionEntry } from "./types";
 import type { AuditStore } from "./audit-store";
 
 type GraphSite = {
@@ -21,6 +21,8 @@ type GraphColumn = {
 
 type GraphListItem = {
   id: string;
+  createdDateTime?: string;
+  fields?: Record<string, unknown>;
 };
 
 export class SharePointListAuditStore implements AuditStore {
@@ -61,6 +63,16 @@ export class SharePointListAuditStore implements AuditStore {
         }),
       },
     );
+  }
+
+  async list(limit = 100): Promise<AuditLogRecord[]> {
+    const auditTarget = await this.getAuditList();
+    const top = Math.min(Math.max(limit, 1), 500);
+    const response = await this.graph.request<GraphCollection<GraphListItem>>(
+      `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items?$top=${top}&$orderby=createdDateTime desc&$expand=fields`,
+    );
+
+    return (response.value ?? []).map(mapAuditListItem);
   }
 
   private async getAuditList(siteId?: string) {
@@ -161,4 +173,62 @@ function formatAuditTitle(entry: AuditLogDraft) {
   return [entry.action, entry.targetEmail || entry.targetName || entry.libraryName, entry.status]
     .filter(Boolean)
     .join(" - ");
+}
+
+function mapAuditListItem(item: GraphListItem): AuditLogRecord {
+  const fields = item.fields ?? {};
+  const status = readStatus(fields.Status);
+
+  return {
+    id: item.id,
+    title: readText(fields.Title) || "Audit event",
+    action: readAction(fields.Action),
+    actorEmail: readText(fields.ActorEmail),
+    actorName: readText(fields.ActorName),
+    actorRole: readText(fields.ActorRole),
+    approvalRequestNo: readText(fields.ApprovalRequestNo),
+    targetEmail: readText(fields.TargetEmail),
+    targetName: readText(fields.TargetName),
+    permissionRole: readRole(fields.PermissionRole),
+    previousRole: readRole(fields.PreviousRole),
+    siteName: readText(fields.SiteName),
+    libraryName: readText(fields.LibraryName),
+    itemId: readText(fields.ItemId),
+    source: readSource(fields.Source),
+    tenantType: readTenant(fields.TenantType),
+    status,
+    errorMessage: readText(fields.ErrorMessage),
+    graphRequestId: readText(fields.GraphRequestId),
+    createdAt: readText(fields.CreatedAt) || item.createdDateTime || "",
+  };
+}
+
+function readText(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function readAction(value: unknown): AuditLogAction {
+  if (value === "GrantAccess" || value === "UpdateRole" || value === "RemoveAccess" || value === "RefreshReport" || value === "Login") {
+    return value;
+  }
+  return "Login";
+}
+
+function readStatus(value: unknown): AuditLogStatus {
+  return value === "Failed" ? "Failed" : "Success";
+}
+
+function readRole(value: unknown): AccessRole | undefined {
+  if (value === "viewer" || value === "editor" || value === "owner") return value;
+  return undefined;
+}
+
+function readSource(value: unknown): PermissionEntry["source"] | undefined {
+  if (value === "direct" || value === "group" || value === "link" || value === "inherited") return value;
+  return undefined;
+}
+
+function readTenant(value: unknown): PermissionEntry["tenant"] | undefined {
+  if (value === "internal" || value === "external") return value;
+  return undefined;
 }

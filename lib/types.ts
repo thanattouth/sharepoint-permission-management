@@ -71,8 +71,6 @@ export type AuditLogAction =
   | "GrantAccess"
   | "UpdateRole"
   | "RemoveAccess"
-  | "RequestGrantAccess"
-  | "RequestUpdateRole"
   | "RefreshReport"
   | "Login";
 
@@ -99,30 +97,10 @@ export type AuditLogDraft = {
   graphRequestId?: string;
 };
 
-export type PermissionRequestAction = "GrantAccess" | "UpdateRole";
-
-export type PermissionRequestStatus = "Pending" | "Approved" | "Rejected" | "Applied" | "Failed";
-
-export type PermissionRequestDraft = {
-  action: PermissionRequestAction;
-  actorEmail: string;
-  actorName: string;
-  actorRole: string;
-  targetEmail: string;
-  targetName: string;
-  requestedRole: AccessRole;
-  previousRole?: AccessRole;
-  permissionId?: string;
-  libraryId?: string;
-  driveId?: string;
-  siteId?: string;
-  siteName?: string;
-  libraryName?: string;
-  itemId?: string;
-  itemName?: string;
-  source?: PermissionEntry["source"];
-  tenantType: PermissionEntry["tenant"];
-  status: PermissionRequestStatus;
+export type AuditLogRecord = AuditLogDraft & {
+  id: string;
+  title: string;
+  createdAt: string;
 };
 
 export type UserSuggestion = {

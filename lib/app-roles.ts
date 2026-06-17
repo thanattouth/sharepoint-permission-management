@@ -1,17 +1,19 @@
 import type { AccountInfo } from "@azure/msal-browser";
 import type { ContentItem } from "./types";
 
-export type AppRole = "Admin" | "InternalUser" | "GuestUser" | "ExecutiveUser";
+export type AppRole = "Admin" | "Reviewer" | "InternalUser" | "GuestUser" | "ExecutiveUser";
 
 export type UserCapabilities = {
   canManagePermissions: boolean;
   canViewAllSites: boolean;
+  canViewAudit: boolean;
   canViewReports: boolean;
   isReadOnly: boolean;
 };
 
 const roleLabels: Record<AppRole, string> = {
   Admin: "Admin",
+  Reviewer: "Reviewer",
   InternalUser: "Internal User",
   GuestUser: "Guest User",
   ExecutiveUser: "Executive User",
@@ -20,6 +22,7 @@ const roleLabels: Record<AppRole, string> = {
 const defaultCapabilities: UserCapabilities = {
   canManagePermissions: false,
   canViewAllSites: false,
+  canViewAudit: false,
   canViewReports: false,
   isReadOnly: true,
 };
@@ -42,15 +45,17 @@ export function getCapabilities(roles: AppRole[]): UserCapabilities {
     return {
       canManagePermissions: true,
       canViewAllSites: true,
+      canViewAudit: true,
       canViewReports: true,
       isReadOnly: false,
     };
   }
 
-  if (roles.includes("ExecutiveUser")) {
+  if (roles.includes("Reviewer") || roles.includes("ExecutiveUser")) {
     return {
       canManagePermissions: false,
       canViewAllSites: true,
+      canViewAudit: true,
       canViewReports: true,
       isReadOnly: true,
     };
@@ -60,6 +65,7 @@ export function getCapabilities(roles: AppRole[]): UserCapabilities {
     return {
       canManagePermissions: false,
       canViewAllSites: false,
+      canViewAudit: false,
       canViewReports: false,
       isReadOnly: true,
     };
@@ -69,6 +75,7 @@ export function getCapabilities(roles: AppRole[]): UserCapabilities {
     return {
       canManagePermissions: false,
       canViewAllSites: false,
+      canViewAudit: false,
       canViewReports: false,
       isReadOnly: true,
     };
@@ -97,6 +104,7 @@ function getRawRoles(account: AccountInfo | null) {
 function isAppRole(value: unknown): value is AppRole {
   return (
     value === "Admin" ||
+    value === "Reviewer" ||
     value === "InternalUser" ||
     value === "GuestUser" ||
     value === "ExecutiveUser"

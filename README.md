@@ -1,12 +1,14 @@
 # SharePoint Permission Management
 
-Production-style SharePoint permission console focused on the first five MVP flows:
+Production-style SharePoint permission console for SharePoint Online permission governance.
 
-1. Microsoft Entra ID login
-2. Site selection
-3. Document Library selection
-4. Member/permission visibility
-5. Viewer/Editor permission management
+The web app scope is intentionally limited to three role-based screens:
+
+1. Admin permission management with required approved request number and audit trail
+2. Reviewer read-only permission review with Excel-like summary
+3. Audit trail view
+
+Approval routing is separate from the web app. Power Apps and Power Automate can be delivered as a customer-customizable sample flow that returns an approved request number; admins enter that number before changing SharePoint permissions.
 
 The app connects directly to Microsoft Graph. Microsoft Entra configuration is required before sign-in.
 
@@ -54,7 +56,7 @@ Initial Graph scopes are declared in `lib/graph.ts`:
 - `Sites.ReadWrite.All`
 - `Files.ReadWrite.All`
 
-`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. For the demo role model, Internal User can browse configured sites but only sees standard/internal libraries.
+`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. For the role model, Admin can change permissions, Reviewer/ExecutiveUser can review configured sites and audit entries, and Internal User can browse configured sites but only sees standard/internal libraries.
 
 The configured sites are loaded from Microsoft Graph after sign-in, followed by drives, drive items, and permissions for the selected workspace.
 
@@ -62,7 +64,7 @@ The configured sites are loaded from Microsoft Graph after sign-in, followed by 
 
 Permission changes are written to a SharePoint List so governance evidence stays in Microsoft 365. By default, the app uses the first configured site, or `NEXT_PUBLIC_AUDIT_SITE` when set, and writes to `PermissionAuditLog`.
 
-The app creates the list automatically on first write when the signed-in Admin has enough SharePoint/Graph permission. Logged events include login, report refresh, grant access, role update, remove access, success/failure status, actor, target, site/library, role, tenant type, error message, and Graph request id when available.
+The app creates the list automatically on first write when the signed-in Admin has enough SharePoint/Graph permission. Logged events include login, report refresh, grant access, role update, remove access, success/failure status, actor, target, site/library, role, approved request number, tenant type, error message, and Graph request id when available.
 
 Set `NEXT_PUBLIC_AUDIT_LOG_ENABLED=false` to disable SharePoint audit writes without removing the local recent-changes UI.
 
