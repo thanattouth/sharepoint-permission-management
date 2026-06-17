@@ -38,7 +38,7 @@ function lockManagedPermission(permission: PermissionEntry, lastActivity: string
   };
 }
 
-function isDefaultSharePointGroup(permission: PermissionEntry, siteName: string) {
+export function isDefaultSharePointGroup(permission: PermissionEntry, siteName: string) {
   if (permission.type !== "group") return false;
   const normalizedName = permission.displayName.toLowerCase();
   const normalizedSite = siteName.toLowerCase();

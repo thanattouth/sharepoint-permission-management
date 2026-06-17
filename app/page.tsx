@@ -27,7 +27,7 @@ import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosof
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore } from "@/lib/audit-store-factory";
-import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
+import { isDefaultSharePointGroup, normalizeSharePointPrincipals } from "@/lib/permission-normalization";
 import {
   graphReadScopes,
   graphWriteScopes,
@@ -1326,8 +1326,10 @@ function ReportsPanel({
   const [showAllPermissions, setShowAllPermissions] = useState(false);
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
   const isLoadingReport = loadingLabel === "Loading reports";
-  const visibleReportPermissions = showAllPermissions ? report?.permissions ?? [] : report?.permissions.slice(0, 8) ?? [];
-  const hiddenPermissionCount = Math.max((report?.permissions.length ?? 0) - visibleReportPermissions.length, 0);
+  const reviewerPermissions = (report?.permissions ?? []).filter((permission) => !isDefaultReportSharePointGroup(permission));
+  const hiddenSystemPermissionCount = Math.max((report?.permissions.length ?? 0) - reviewerPermissions.length, 0);
+  const visibleReportPermissions = showAllPermissions ? reviewerPermissions : reviewerPermissions.slice(0, 8);
+  const hiddenPermissionCount = Math.max(reviewerPermissions.length - visibleReportPermissions.length, 0);
 
   return (
     <section className="page-section">
@@ -1361,7 +1363,7 @@ function ReportsPanel({
             <ReportMetric label="Editable access" value={report.directPermissionCount} />
             <ReportMetric label="External access" value={report.externalPermissionCount} tone="risk" />
             <ReportMetric label="Inherited" value={report.inheritedPermissionCount} />
-            <ReportMetric label="Permission rows" value={report.permissions.length} />
+            <ReportMetric label="Permission rows" value={reviewerPermissions.length} />
           </div>
 
           <div className="permission-section-title">
@@ -1370,8 +1372,8 @@ function ReportsPanel({
               <h2>Who has access</h2>
             </div>
             <div className="section-title-actions">
-              <span>{report.permissions.length}</span>
-              {report.permissions.length > 8 && (
+              <span>{reviewerPermissions.length}</span>
+              {reviewerPermissions.length > 8 && (
                 <button className="text-button" type="button" onClick={() => setShowAllPermissions((current) => !current)}>
                   {showAllPermissions ? "Show less" : "See all"}
                 </button>
@@ -1402,13 +1404,18 @@ function ReportsPanel({
                 <span className={permission.tenant === "external" ? "risk-text" : ""}>{permission.tenant}</span>
               </div>
             ))}
-            {report.permissions.length === 0 && (
-              <div className="empty-row">No permissions found in configured library roots.</div>
+            {reviewerPermissions.length === 0 && (
+              <div className="empty-row">No non-system permissions found in configured library roots.</div>
             )}
           </div>
           {hiddenPermissionCount > 0 && (
             <p className="table-footnote">
-              Showing {visibleReportPermissions.length} of {report.permissions.length}. Use See all for the full inventory.
+              Showing {visibleReportPermissions.length} of {reviewerPermissions.length}. Use See all for the full inventory.
+            </p>
+          )}
+          {hiddenSystemPermissionCount > 0 && (
+            <p className="table-footnote">
+              Hidden {hiddenSystemPermissionCount} default SharePoint Owners, Members, and Visitors group row{hiddenSystemPermissionCount > 1 ? "s" : ""}.
             </p>
           )}
 
@@ -1465,6 +1472,34 @@ function AuditPanel({
   onRefresh: () => void;
 }) {
   const isLoadingAudit = loadingLabel === "Loading audit";
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditActionFilter, setAuditActionFilter] = useState<"all" | AuditLogAction>("all");
+  const [auditStatusFilter, setAuditStatusFilter] = useState<"all" | AuditLogStatus>("all");
+  const filteredAuditRecords = auditRecords.filter((entry) => {
+    const search = auditQuery.trim().toLowerCase();
+    const matchesSearch = !search || [
+      entry.action,
+      entry.actorEmail,
+      entry.actorName,
+      entry.actorRole,
+      entry.approvalRequestNo,
+      entry.targetEmail,
+      entry.targetName,
+      entry.permissionRole,
+      entry.previousRole,
+      entry.siteName,
+      entry.libraryName,
+      entry.status,
+      entry.errorMessage,
+      entry.graphRequestId,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(search));
+
+    const matchesAction = auditActionFilter === "all" || entry.action === auditActionFilter;
+    const matchesStatus = auditStatusFilter === "all" || entry.status === auditStatusFilter;
+    return matchesSearch && matchesAction && matchesStatus;
+  });
 
   return (
     <section className="page-section">
@@ -1482,6 +1517,44 @@ function AuditPanel({
 
       {auditError && <div className="auth-error">{auditError}</div>}
 
+      <div className="audit-search-bar">
+        <label className="search-box audit-search-box">
+          <Search size={16} />
+          <input
+            aria-label="Search audit logs"
+            onChange={(event) => setAuditQuery(event.target.value)}
+            placeholder="Search actor, target, request no., site, error"
+            value={auditQuery}
+          />
+        </label>
+        <select
+          aria-label="Filter audit action"
+          className="audit-filter-select"
+          onChange={(event) => setAuditActionFilter(event.target.value as "all" | AuditLogAction)}
+          value={auditActionFilter}
+        >
+          <option value="all">All actions</option>
+          <option value="GrantAccess">Grant</option>
+          <option value="UpdateRole">Update role</option>
+          <option value="RemoveAccess">Remove</option>
+          <option value="RefreshReport">Refresh review</option>
+          <option value="Login">Login</option>
+        </select>
+        <select
+          aria-label="Filter audit status"
+          className="audit-filter-select"
+          onChange={(event) => setAuditStatusFilter(event.target.value as "all" | AuditLogStatus)}
+          value={auditStatusFilter}
+        >
+          <option value="all">All status</option>
+          <option value="Success">Success</option>
+          <option value="Failed">Failed</option>
+        </select>
+        <span className="audit-result-count">
+          {filteredAuditRecords.length} / {auditRecords.length}
+        </span>
+      </div>
+
       {isLoadingAudit ? (
         <div className="audit-table">
           <TableSkeleton columns={7} rows={6} />
@@ -1497,7 +1570,7 @@ function AuditPanel({
             <span>Request no.</span>
             <span>Status</span>
           </div>
-          {auditRecords.map((entry) => (
+          {filteredAuditRecords.map((entry) => (
             <div className="audit-table-row" role="row" key={entry.id}>
               <span>{formatAuditTime(entry.createdAt)}</span>
               <strong>{formatAuditAction(entry.action, entry.permissionRole, entry.previousRole)}</strong>
@@ -1517,8 +1590,8 @@ function AuditPanel({
               <span className={`status-chip ${entry.status === "Failed" ? "failed" : "success"}`}>{entry.status}</span>
             </div>
           ))}
-          {auditRecords.length === 0 && !auditError && (
-            <div className="empty-row">No audit entries found.</div>
+          {filteredAuditRecords.length === 0 && !auditError && (
+            <div className="empty-row">{auditRecords.length === 0 ? "No audit entries found." : "No audit entries match the current filters."}</div>
           )}
         </div>
       )}
@@ -2297,6 +2370,23 @@ function getPermissionActionSummary(action: PendingPermissionAction) {
     confirmLabel: "Remove access",
     submittingLabel: "Removing",
   };
+}
+
+function isDefaultReportSharePointGroup(permission: ReportSummary["permissions"][number]) {
+  return isDefaultSharePointGroup(
+    {
+      id: permission.id,
+      libraryId: permission.id,
+      displayName: permission.principalName,
+      email: permission.email,
+      type: "group",
+      role: permission.role,
+      source: permission.source,
+      tenant: permission.tenant,
+      lastActivity: "Report",
+    },
+    permission.siteName,
+  );
 }
 
 function getInitials(label: string) {
