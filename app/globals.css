@@ -1265,6 +1265,38 @@ h2 {
   color: #805400;
 }
 
+.approval-reference-panel {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.approval-reference-panel label {
+  display: grid;
+  gap: 7px;
+}
+
+.approval-reference-panel span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approval-reference-panel input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.approval-reference-panel input:focus {
+  border-color: var(--blue);
+  outline: 3px solid rgba(0, 96, 171, 0.12);
+}
+
 .pane-header {
   align-items: center;
   display: flex;
