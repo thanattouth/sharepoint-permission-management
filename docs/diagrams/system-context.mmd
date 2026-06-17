@@ -1,0 +1,22 @@
+flowchart LR
+  Admin["Admin"]
+  Reviewer["Reviewer"]
+  Approver["Owner / VP / EVP Approver"]
+
+  WebApp["SPO Permission Management Web App<br/>Azure App Service / Next.js"]
+  Entra["Microsoft Entra ID<br/>Authentication + App Roles"]
+  Graph["Microsoft Graph"]
+  SharePoint["SharePoint Online<br/>Sites / Libraries / Folders / Files"]
+  AuditList["SharePoint List<br/>PermissionAuditLog"]
+  PowerPlatform["Power Apps + Power Automate<br/>Customer-customizable approval sample"]
+
+  Admin -->|"Manage permissions<br/>with approved request no."| WebApp
+  Reviewer -->|"Review permissions<br/>read-only"| WebApp
+  WebApp -->|"Sign-in + app roles"| Entra
+  WebApp -->|"Read hierarchy + permissions<br/>Apply admin changes"| Graph
+  Graph --> SharePoint
+  WebApp -->|"Write audit trail"| AuditList
+
+  Admin -.->|"Request approval outside app"| PowerPlatform
+  Approver -.->|"Approve / reject"| PowerPlatform
+  PowerPlatform -.->|"Returns approval request no."| Admin

@@ -10,6 +10,17 @@ Production-style SharePoint permission console focused on the first five MVP flo
 
 The app connects directly to Microsoft Graph. Microsoft Entra configuration is required before sign-in.
 
+## Architecture
+
+Target architecture diagrams are maintained as diagram-as-code in [docs/architecture.md](docs/architecture.md).
+
+Standalone Mermaid sources are available in [docs/diagrams](docs/diagrams):
+
+- `system-context.mmd`
+- `application-screens.mmd`
+- `permission-change-flow.mmd`
+- `audit-data-model.mmd`
+
 ## Run
 
 ```bash

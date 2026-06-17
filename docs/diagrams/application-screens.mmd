@@ -1,0 +1,25 @@
+flowchart TD
+  Login["Microsoft Entra sign-in"]
+  RoleCheck{"App role"}
+
+  AdminHome["Admin console"]
+  ReviewerHome["Reviewer console"]
+  Audit["Audit list"]
+
+  Manage["Permission management<br/>Grant / update / remove"]
+  Review["Permission review<br/>Site hierarchy, library, folder, file, roles"]
+  Reports["Summary report<br/>Excel-like review view"]
+
+  Login --> RoleCheck
+  RoleCheck -->|"Admin"| AdminHome
+  RoleCheck -->|"Reviewer / Executive read-only"| ReviewerHome
+  RoleCheck -->|"No role"| Denied["Access denied"]
+
+  AdminHome --> Manage
+  AdminHome --> Review
+  AdminHome --> Reports
+  AdminHome --> Audit
+
+  ReviewerHome --> Review
+  ReviewerHome --> Reports
+  ReviewerHome --> Audit

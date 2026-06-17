@@ -1,0 +1,19 @@
+sequenceDiagram
+  autonumber
+  actor Admin
+  participant Approval as Power App / Power Automate sample
+  participant App as Web App
+  participant Graph as Microsoft Graph
+  participant SPO as SharePoint Online
+  participant Audit as PermissionAuditLog
+
+  Admin->>Approval: Submit access approval request
+  Approval->>Approval: Route to owner / VP / EVP approver
+  Approval-->>Admin: Approved request number
+  Admin->>App: Enter approved request number
+  Admin->>App: Grant / update / remove permission
+  App->>Graph: Apply permission change
+  Graph->>SPO: Update SharePoint permission
+  Graph-->>App: Result
+  App->>Audit: Write audit trail with approved request number
+  App-->>Admin: Show success or failure
