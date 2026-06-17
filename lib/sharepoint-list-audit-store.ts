@@ -15,6 +15,10 @@ type GraphList = {
   displayName?: string;
 };
 
+type GraphColumn = {
+  name?: string;
+};
+
 type GraphListItem = {
   id: string;
 };
@@ -39,6 +43,7 @@ export class SharePointListAuditStore implements AuditStore {
             ActorEmail: entry.actorEmail,
             ActorName: entry.actorName,
             ActorRole: entry.actorRole,
+            ApprovalRequestNo: entry.approvalRequestNo ?? "",
             TargetEmail: entry.targetEmail ?? "",
             TargetName: entry.targetName ?? "",
             PermissionRole: entry.permissionRole ?? "",
@@ -85,7 +90,10 @@ export class SharePointListAuditStore implements AuditStore {
       `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
     );
     const existing = (lists.value ?? []).find((list) => list.displayName === auditListName);
-    if (existing) return { siteId, listId: existing.id };
+    if (existing) {
+      await this.ensureAuditColumns(siteId, existing.id);
+      return { siteId, listId: existing.id };
+    }
 
     const created = await this.graph.request<GraphList>(`/sites/${encodeURIComponent(siteId)}/lists`, {
       method: "POST",
@@ -103,6 +111,29 @@ export class SharePointListAuditStore implements AuditStore {
 
     return { siteId, listId: created.id };
   }
+
+  private async ensureAuditColumns(siteId: string, listId: string) {
+    const columns = await this.graph.request<GraphCollection<GraphColumn>>(
+      `/sites/${encodeURIComponent(siteId)}/lists/${encodeURIComponent(listId)}/columns?$select=name`,
+    );
+    const existingColumnNames = new Set((columns.value ?? []).map((column) => column.name).filter(Boolean));
+    const missingColumns = auditColumns.filter((name) => !existingColumnNames.has(name));
+
+    await Promise.all(
+      missingColumns.map((name) =>
+        this.graph.request<GraphColumn>(
+          `/sites/${encodeURIComponent(siteId)}/lists/${encodeURIComponent(listId)}/columns`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              name,
+              text: {},
+            }),
+          },
+        ),
+      ),
+    );
+  }
 }
 
 const auditColumns = [
@@ -110,6 +141,7 @@ const auditColumns = [
   "ActorEmail",
   "ActorName",
   "ActorRole",
+  "ApprovalRequestNo",
   "TargetEmail",
   "TargetName",
   "PermissionRole",

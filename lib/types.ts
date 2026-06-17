@@ -83,6 +83,7 @@ export type AuditLogDraft = {
   actorEmail: string;
   actorName: string;
   actorRole: string;
+  approvalRequestNo?: string;
   targetEmail?: string;
   targetName?: string;
   permissionRole?: AccessRole;
