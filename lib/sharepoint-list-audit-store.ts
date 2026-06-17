@@ -32,7 +32,7 @@ export class SharePointListAuditStore implements AuditStore {
   constructor(private readonly graph: GraphRequestClient) {}
 
   async write(entry: AuditLogDraft) {
-    const auditTarget = await this.getAuditList(entry.siteId);
+    const auditTarget = await this.getAuditList(entry.siteId, { ensureColumns: true });
 
     await this.graph.request<GraphListItem>(
       `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items`,
@@ -66,7 +66,7 @@ export class SharePointListAuditStore implements AuditStore {
   }
 
   async list(limit = 100): Promise<AuditLogRecord[]> {
-    const auditTarget = await this.getAuditList();
+    const auditTarget = await this.getAuditList(undefined, { ensureColumns: false });
     const top = Math.min(Math.max(limit, 1), 500);
     const response = await this.graph.request<GraphCollection<GraphListItem>>(
       `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items?$top=${top}&$orderby=createdDateTime desc&$expand=fields`,
@@ -75,13 +75,14 @@ export class SharePointListAuditStore implements AuditStore {
     return (response.value ?? []).map(mapAuditListItem);
   }
 
-  private async getAuditList(siteId?: string) {
+  private async getAuditList(siteId?: string, options: { ensureColumns: boolean } = { ensureColumns: true }) {
     const auditSiteId = siteId || await this.getDefaultAuditSiteId();
-    const existing = this.auditListPromises.get(auditSiteId);
+    const cacheKey = `${auditSiteId}:${options.ensureColumns ? "write" : "read"}`;
+    const existing = this.auditListPromises.get(cacheKey);
     if (existing) return existing;
 
-    const promise = this.resolveAuditList(auditSiteId);
-    this.auditListPromises.set(auditSiteId, promise);
+    const promise = this.resolveAuditList(auditSiteId, options);
+    this.auditListPromises.set(cacheKey, promise);
     return promise;
   }
 
@@ -97,14 +98,20 @@ export class SharePointListAuditStore implements AuditStore {
     return site.id;
   }
 
-  private async resolveAuditList(siteId: string) {
+  private async resolveAuditList(siteId: string, options: { ensureColumns: boolean }) {
     const lists = await this.graph.request<GraphCollection<GraphList>>(
       `/sites/${encodeURIComponent(siteId)}/lists?$select=id,displayName`,
     );
     const existing = (lists.value ?? []).find((list) => list.displayName === auditListName);
     if (existing) {
-      await this.ensureAuditColumns(siteId, existing.id);
+      if (options.ensureColumns) {
+        await this.ensureAuditColumns(siteId, existing.id);
+      }
       return { siteId, listId: existing.id };
+    }
+
+    if (!options.ensureColumns) {
+      throw new Error(`Audit list "${auditListName}" was not found.`);
     }
 
     const created = await this.graph.request<GraphList>(`/sites/${encodeURIComponent(siteId)}/lists`, {
