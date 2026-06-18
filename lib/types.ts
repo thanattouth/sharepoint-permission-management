@@ -126,6 +126,9 @@ export type ReportPermissionRow = {
   id: string;
   siteName: string;
   libraryName: string;
+  itemName: string;
+  itemPath: string;
+  itemType: ContentItemType;
   principalName: string;
   email: string;
   role: AccessRole;
@@ -135,6 +138,9 @@ export type ReportPermissionRow = {
 
 export type ReportSummary = {
   generatedAt: string;
+  reviewOwnerEmail?: string;
+  reviewScopeApplied?: boolean;
+  reviewScopeConfigured?: boolean;
   siteCount: number;
   libraryCount: number;
   protectedLibraryCount: number;
@@ -142,6 +148,8 @@ export type ReportSummary = {
   directPermissionCount: number;
   externalPermissionCount: number;
   inheritedPermissionCount: number;
+  scannedItemCount?: number;
+  scanLimitReached?: boolean;
   sites: ReportSiteSummary[];
   permissions: ReportPermissionRow[];
 };

@@ -22,17 +22,16 @@ import { ReportsPanel } from "@/features/reviewer/ReportsPanel";
 import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365, signOutMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
-import { createAuditStore } from "@/lib/audit-store-factory";
-import { normalizeSharePointPrincipals } from "@/lib/permission-normalization";
-import { roleLabels } from "@/lib/permission-labels";
+import { createAuditStore, type AuditStore } from "@/lib/features/audit";
+import { normalizeSharePointPrincipals, roleLabels } from "@/lib/features/admin";
+import { createReviewScopeStore, fallbackReviewScopes, getReviewScopeOwners, hasReviewScopes, type ReviewScope, type ReviewScopeStore } from "@/lib/features/reviewer";
 import {
   graphReadScopes,
   graphWriteScopes,
   GraphSharePointPermissionClient,
   type PermissionDraft,
   type SharePointPermissionClient,
-} from "@/lib/graph";
-import type { AuditStore } from "@/lib/audit-store";
+} from "@/lib/features/sharepoint-client";
 import type {
   AccessRole,
   AuditEntry,
@@ -91,6 +90,8 @@ export default function Home() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
   const [reportError, setReportError] = useState("");
+  const [reviewScopes, setReviewScopes] = useState<ReviewScope[]>(fallbackReviewScopes);
+  const [selectedReviewOwnerEmail, setSelectedReviewOwnerEmail] = useState("");
   const [authError, setAuthError] = useState("");
   const [dataError, setDataError] = useState("");
   const [dataConsentRequired, setDataConsentRequired] = useState(false);
@@ -104,12 +105,16 @@ export default function Home() {
   const auditStore = useMemo<AuditStore>(() => {
     return createAuditStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
   }, [account]);
+  const reviewScopeStore = useMemo<ReviewScopeStore>(() => {
+    return createReviewScopeStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
+  }, [account]);
   const writeGraphClient = useMemo<SharePointPermissionClient>(() => {
     return new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphWriteScopes));
   }, [account]);
 
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
   const capabilities = useMemo(() => getCapabilities(appRoles), [appRoles]);
+  const reviewScopeOwners = useMemo(() => getReviewScopeOwners(reviewScopes), [reviewScopes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +155,12 @@ export default function Home() {
         setSites(nextSites);
 
         const nextAuditStore = createAuditStore(() => acquireGraphToken(restoredAccount, undefined, { allowPopup: false }));
-        await restoreSavedSessionView(nextClient, nextAuditStore, nextRoles);
+        const nextReviewScopeStore = createReviewScopeStore(() => acquireGraphToken(restoredAccount, undefined, { allowPopup: false }));
+        const nextReviewScopes = await loadReviewScopesWithStore(nextReviewScopeStore);
+        if (cancelled) return;
+
+        setReviewScopes(nextReviewScopes);
+        await restoreSavedSessionView(nextClient, nextAuditStore, nextRoles, nextReviewScopes);
       } catch {
         clearSavedSessionView();
       } finally {
@@ -256,6 +266,15 @@ export default function Home() {
     });
   }, [permissions, query]);
 
+  async function loadReviewScopesWithStore(store: ReviewScopeStore) {
+    try {
+      const scopes = await store.list();
+      return scopes.length > 0 ? scopes : fallbackReviewScopes;
+    } catch {
+      return fallbackReviewScopes;
+    }
+  }
+
   async function connectMicrosoft365() {
     setAuthError("");
     setDataError("");
@@ -286,6 +305,8 @@ export default function Home() {
         return [];
       });
       const nextAuditStore = createAuditStore(() => acquireGraphToken(response.account, undefined, { allowPopup: false }));
+      const nextReviewScopeStore = createReviewScopeStore(() => acquireGraphToken(response.account, undefined, { allowPopup: false }));
+      const nextReviewScopes = await loadReviewScopesWithStore(nextReviewScopeStore);
       void writeAuditWithStore(nextAuditStore, {
         action: "Login",
         status: "Success",
@@ -301,7 +322,9 @@ export default function Home() {
             ? "audit"
             : "workspace";
       const initialReportSummary = initialPortalView === "reports"
-        ? await nextClient.getReportSummary().catch(() => null)
+        ? hasReviewScopes(nextReviewScopes)
+          ? null
+          : await nextClient.getReportSummary({ reviewScopes: nextReviewScopes }).catch(() => null)
         : null;
       const initialAuditRecords = initialPortalView === "audit"
         ? await nextAuditStore.list(100).catch(() => [])
@@ -312,6 +335,7 @@ export default function Home() {
       setAccountLabel(response.account?.username ?? "Microsoft 365 Admin");
       setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
       setSites(nextSites);
+      setReviewScopes(nextReviewScopes);
       setPortalView(initialPortalView);
       setReportSummary(initialReportSummary);
       setAuditRecords(initialAuditRecords);
@@ -342,6 +366,8 @@ export default function Home() {
     setDataError("");
     setReportSummary(null);
     setReportError("");
+    setReviewScopes(fallbackReviewScopes);
+    setSelectedReviewOwnerEmail("");
     setAuditRecords([]);
     setAuditError("");
     window.sessionStorage.setItem(signedOutMarkerKey, "true");
@@ -368,7 +394,7 @@ export default function Home() {
     pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
   }
 
-  async function openReports() {
+  async function openReports(ownerEmail = selectedReviewOwnerEmail) {
     if (!capabilities.canViewReports) return;
 
     setPortalView("reports");
@@ -381,10 +407,27 @@ export default function Home() {
     setDataError("");
     setDataConsentRequired(false);
     setReportError("");
+
+    if (hasReviewScopes(reviewScopes) && !ownerEmail) {
+      setReportSummary(null);
+      setLoadingLabel("");
+      return;
+    }
+
+    setSelectedReviewOwnerEmail(ownerEmail);
     setLoadingLabel("Loading reports");
 
     try {
-      setReportSummary(await graphClient.getReportSummary());
+      const nextReviewScopes = await loadReviewScopesWithStore(reviewScopeStore);
+      setReviewScopes(nextReviewScopes);
+
+      if (hasReviewScopes(nextReviewScopes) && !ownerEmail) {
+        setReportSummary(null);
+        setLoadingLabel("");
+        return;
+      }
+
+      setReportSummary(await graphClient.getReportSummary({ ownerEmail, reviewScopes: nextReviewScopes }));
       void writeAudit({
         action: "RefreshReport",
         status: "Success",
@@ -819,10 +862,19 @@ export default function Home() {
     try {
       const consentClient = new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphReadScopes));
       const nextSites = await consentClient.listSites();
+      const nextReviewScopes = await loadReviewScopesWithStore(reviewScopeStore);
       setSites(nextSites);
+      setReviewScopes(nextReviewScopes);
 
       if (portalView === "reports" && capabilities.canViewReports) {
-        setReportSummary(await consentClient.getReportSummary());
+        if (hasReviewScopes(nextReviewScopes) && !selectedReviewOwnerEmail) {
+          setReportSummary(null);
+        } else {
+          setReportSummary(await consentClient.getReportSummary({
+            ownerEmail: selectedReviewOwnerEmail,
+            reviewScopes: nextReviewScopes,
+          }));
+        }
         setReportError("");
       }
 
@@ -942,14 +994,21 @@ export default function Home() {
     return filterContentItemsForRoles(rootContents, appRoles);
   }
 
-  async function restoreSavedSessionView(client: SharePointPermissionClient, store: AuditStore, roles: ReturnType<typeof getAccountRoles>) {
+  async function restoreSavedSessionView(
+    client: SharePointPermissionClient,
+    store: AuditStore,
+    roles: ReturnType<typeof getAccountRoles>,
+    nextReviewScopes = reviewScopes,
+  ) {
     const saved = readSavedSessionView();
     const roleCapabilities = getCapabilities(roles);
     if (!saved) {
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
       if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewReports) {
         setPortalView("reports");
-        setReportSummary(await client.getReportSummary());
+        if (!hasReviewScopes(nextReviewScopes)) {
+          setReportSummary(await client.getReportSummary({ reviewScopes: nextReviewScopes }));
+        }
       } else if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewAudit) {
         setPortalView("audit");
         setAuditRecords(await store.list(100));
@@ -972,7 +1031,9 @@ export default function Home() {
 
     try {
       if (restoredPortalView === "reports") {
-        setReportSummary(await client.getReportSummary());
+        if (!hasReviewScopes(nextReviewScopes)) {
+          setReportSummary(await client.getReportSummary({ reviewScopes: nextReviewScopes }));
+        }
         return;
       }
 
@@ -1072,7 +1133,7 @@ export default function Home() {
             </button>
           )}
           {capabilities.canViewReports && (
-            <button className={`sidebar-nav-item ${portalView === "reports" ? "active" : ""}`} onClick={openReports}>
+            <button className={`sidebar-nav-item ${portalView === "reports" ? "active" : ""}`} onClick={() => openReports()}>
               <BarChart3 size={18} />
               Reviewer
             </button>
@@ -1127,6 +1188,9 @@ export default function Home() {
               loadingLabel={loadingLabel}
               report={reportSummary}
               reportError={reportError}
+              reviewOwners={reviewScopeOwners}
+              selectedOwnerEmail={selectedReviewOwnerEmail}
+              onOwnerChange={setSelectedReviewOwnerEmail}
               onRefresh={openReports}
             />
           ) : portalView === "audit" ? (

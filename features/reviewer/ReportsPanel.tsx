@@ -2,8 +2,8 @@
 
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { isDefaultSharePointGroup } from "@/lib/permission-normalization";
-import { roleLabels } from "@/lib/permission-labels";
+import { isDefaultSharePointGroup, roleLabels } from "@/lib/features/admin";
+import type { ReviewScopeOwner } from "@/lib/features/reviewer";
 import type { PermissionEntry, ReportSummary } from "@/lib/types";
 import { ReportSkeleton } from "@/components/shared/Skeletons";
 
@@ -11,13 +11,19 @@ type ReportsPanelProps = {
   report: ReportSummary | null;
   reportError: string;
   loadingLabel: string;
-  onRefresh: () => void;
+  reviewOwners: ReviewScopeOwner[];
+  selectedOwnerEmail: string;
+  onOwnerChange: (ownerEmail: string) => void;
+  onRefresh: (ownerEmail?: string) => void;
 };
 
 export function ReportsPanel({
   report,
   reportError,
   loadingLabel,
+  reviewOwners,
+  selectedOwnerEmail,
+  onOwnerChange,
   onRefresh,
 }: ReportsPanelProps) {
   const [showAllPermissions, setShowAllPermissions] = useState(false);
@@ -36,13 +42,41 @@ export function ReportsPanel({
           <h1>Permission Review</h1>
           <p>Read-only inventory summary across configured SharePoint sites.</p>
         </div>
-        <button className="secondary-button" disabled={isLoadingReport} onClick={onRefresh}>
+        <button className="secondary-button" disabled={isLoadingReport || (reviewOwners.length > 0 && !selectedOwnerEmail)} onClick={() => onRefresh(selectedOwnerEmail)}>
           <RefreshCw className={isLoadingReport ? "spin-icon" : ""} size={17} />
           Refresh review
         </button>
       </div>
 
       {reportError && <div className="auth-error">{reportError}</div>}
+
+      {reviewOwners.length > 0 && (
+        <div className="review-scope-bar">
+          <label className="review-owner-select">
+            <span>Owner scope</span>
+            <select
+              aria-label="Select owner scope"
+              onChange={(event) => {
+                const ownerEmail = event.target.value;
+                onOwnerChange(ownerEmail);
+                if (ownerEmail) onRefresh(ownerEmail);
+              }}
+              value={selectedOwnerEmail}
+            >
+              <option value="">Select owner</option>
+              {reviewOwners.map((owner) => (
+                <option value={owner.email} key={owner.email}>
+                  {owner.name} ({owner.role}) - {owner.scopeCount}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="review-scope-note">
+            Review loads only mapped sites and libraries for the selected owner.
+          </span>
+        </div>
+      )}
+
       {isLoadingReport && <ReportSkeleton />}
 
       {report && !isLoadingReport && (
@@ -50,6 +84,13 @@ export function ReportsPanel({
           <div className="report-meta">
             <span>Generated</span>
             <strong>{generatedAt}</strong>
+            {typeof report.scannedItemCount === "number" && (
+              <>
+                <span>Scanned items</span>
+                <strong>{report.scannedItemCount.toLocaleString()}</strong>
+              </>
+            )}
+            {report.scanLimitReached && <span className="risk-text">Scan limit reached</span>}
           </div>
 
           <div className="report-metrics">
@@ -83,7 +124,7 @@ export function ReportsPanel({
               <span>Principal</span>
               <span>Role</span>
               <span>Source</span>
-              <span>Scope</span>
+              <span>Item scope</span>
               <span>Tenant</span>
             </div>
             {visibleReportPermissions.map((permission) => (
@@ -95,8 +136,8 @@ export function ReportsPanel({
                 <span className={`role-chip ${permission.role}`}>{roleLabels[permission.role]}</span>
                 <span>{permission.source}</span>
                 <div>
-                  <strong>{permission.libraryName}</strong>
-                  <small>{permission.siteName}</small>
+                  <strong>{permission.itemName}</strong>
+                  <small>{permission.itemType} / {permission.itemPath}</small>
                 </div>
                 <span className={permission.tenant === "external" ? "risk-text" : ""}>{permission.tenant}</span>
               </div>
@@ -113,6 +154,11 @@ export function ReportsPanel({
           {hiddenSystemPermissionCount > 0 && (
             <p className="table-footnote">
               Hidden {hiddenSystemPermissionCount} default SharePoint Owners, Members, and Visitors group row{hiddenSystemPermissionCount > 1 ? "s" : ""}.
+            </p>
+          )}
+          {report.scanLimitReached && (
+            <p className="table-footnote risk-text">
+              The review reached the configured item scan limit. Increase NEXT_PUBLIC_REVIEW_SCAN_ITEM_LIMIT to scan more items.
             </p>
           )}
 
@@ -151,7 +197,9 @@ export function ReportsPanel({
       )}
 
       {!report && !reportError && loadingLabel !== "Loading reports" && (
-        <div className="empty-row site-empty-state">No report data loaded.</div>
+        <div className="empty-row site-empty-state">
+          {reviewOwners.length > 0 ? "Select an owner scope to load the full permission review." : "No report data loaded."}
+        </div>
       )}
     </section>
   );

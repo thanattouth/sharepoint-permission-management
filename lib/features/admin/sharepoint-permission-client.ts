@@ -1,17 +1,13 @@
+import { isInternalEmail, protectedLibraryNames, targetSites } from "../../app-config";
+import { GraphRequestClient, type GraphCollection, type TokenProvider } from "../../graph-request";
 import type {
   AccessRole,
   ContentItem,
   LibrarySummary,
   PermissionEntry,
-  ReportPermissionRow,
-  ReportSiteSummary,
-  ReportSummary,
   SiteSummary,
   UserSuggestion,
-} from "./types";
-import { isInternalEmail, protectedLibraryNames, targetSites } from "./app-config";
-import { GraphRequestClient, type GraphCollection, type TokenProvider } from "./graph-request";
-import { normalizeSharePointPrincipals } from "./permission-normalization";
+} from "../../types";
 
 export type PermissionDraft = {
   displayName: string;
@@ -19,17 +15,19 @@ export type PermissionDraft = {
   role: AccessRole;
 };
 
-export interface SharePointPermissionClient {
+export interface SharePointInventoryReader {
   listSites(): Promise<SiteSummary[]>;
   listLibraries(siteId: string): Promise<LibrarySummary[]>;
-  listContentItems(siteId: string): Promise<ContentItem[]>;
   listChildren(item: ContentItem): Promise<ContentItem[]>;
-  listPermissions(libraryId: string): Promise<PermissionEntry[]>;
+  listPermissions(itemId: string): Promise<PermissionEntry[]>;
+}
+
+export interface SharePointPermissionClient extends SharePointInventoryReader {
+  listContentItems(siteId: string): Promise<ContentItem[]>;
   grantPermission(target: ContentItem, draft: PermissionDraft): Promise<PermissionEntry[]>;
   updatePermissionRole(permission: PermissionEntry, role: AccessRole): Promise<PermissionEntry>;
   removePermission(permission: PermissionEntry): Promise<void>;
   searchUsers(query: string): Promise<UserSuggestion[]>;
-  getReportSummary(): Promise<ReportSummary>;
 }
 
 export const graphReadScopes = [
@@ -122,7 +120,7 @@ type GraphInviteError = {
   };
 };
 
-export class GraphSharePointPermissionClient implements SharePointPermissionClient {
+export class GraphSharePointAdminClient implements SharePointPermissionClient {
   private readonly graph: GraphRequestClient;
 
   constructor(getToken: TokenProvider) {
@@ -172,19 +170,24 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       throw new Error("Selected item is missing Graph drive metadata.");
     }
 
-    const children = await this.graph.request<GraphCollection<GraphDriveItem>>(
-      `/drives/${encodeURIComponent(item.driveId)}/items/${encodeURIComponent(item.itemId)}/children?$select=id,name,webUrl,size,lastModifiedDateTime,folder,file`,
-    );
+    const children: GraphDriveItem[] = [];
+    let nextPath = `/drives/${encodeURIComponent(item.driveId)}/items/${encodeURIComponent(item.itemId)}/children?$top=200&$select=id,name,webUrl,size,lastModifiedDateTime,folder,file`;
 
-    return (children.value ?? []).map((child) => mapContentChild(item, child));
+    while (nextPath) {
+      const response = await this.graph.request<GraphCollection<GraphDriveItem>>(nextPath);
+      children.push(...(response.value ?? []));
+      nextPath = response["@odata.nextLink"] ?? "";
+    }
+
+    return children.map((child) => mapContentChild(item, child));
   }
 
-  async listPermissions(libraryId: string) {
-    const [driveId, itemId] = parseLibraryId(libraryId);
+  async listPermissions(itemId: string) {
+    const [driveId, graphItemId] = parseDriveItemId(itemId);
     const permissions = await this.graph.request<GraphCollection<GraphPermission>>(
-      `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}/permissions`,
+      `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(graphItemId)}/permissions`,
     );
-    return (permissions.value ?? []).map((permission) => mapPermission(libraryId, driveId, itemId, permission));
+    return (permissions.value ?? []).map((permission) => mapPermission(itemId, driveId, graphItemId, permission));
   }
 
   async grantPermission(target: ContentItem, draft: PermissionDraft) {
@@ -269,47 +272,22 @@ export class GraphSharePointPermissionClient implements SharePointPermissionClie
       .map(mapUserSuggestion)
       .filter((user): user is UserSuggestion => Boolean(user));
   }
+}
 
-  async getReportSummary() {
-    const sites = await this.listSites();
-    const reportSites = await Promise.all(
-      sites.map(async (site) => {
-        const libraries = await this.listLibraries(site.id);
-        const permissionsByLibrary = await Promise.all(
-          libraries.map(async (library) => ({
-            library,
-            permissions: normalizeSharePointPrincipals(
-              await this.listPermissions(library.id).catch(() => []),
-              site.name,
-            ),
-          })),
-        );
-        const permissions = permissionsByLibrary.flatMap((entry) => entry.permissions);
-        return {
-          summary: mapReportSite(site, libraries, permissions),
-          permissions: permissionsByLibrary.flatMap((entry) =>
-            entry.permissions.map((permission) => mapReportPermission(site, entry.library, permission)),
-          ),
-        };
-      }),
-    );
-    const siteSummaries = reportSites.map((site) => site.summary);
-    const permissionRows = reportSites.flatMap((site) => site.permissions);
-
-    return {
-      generatedAt: new Date().toISOString(),
-      siteCount: siteSummaries.length,
-      libraryCount: sumBy(siteSummaries, "libraryCount"),
-      protectedLibraryCount: sumBy(siteSummaries, "protectedLibraryCount"),
-      standardLibraryCount: sumBy(siteSummaries, "standardLibraryCount"),
-      directPermissionCount: sumBy(siteSummaries, "directPermissionCount"),
-      externalPermissionCount: sumBy(siteSummaries, "externalPermissionCount"),
-      inheritedPermissionCount: sumBy(siteSummaries, "inheritedPermissionCount"),
-      sites: siteSummaries,
-      permissions: permissionRows,
-    };
-  }
-
+export function libraryToContentItem(library: LibrarySummary): ContentItem {
+  return {
+    id: library.id,
+    siteId: library.siteId,
+    name: library.name,
+    type: "library",
+    driveId: library.driveId,
+    itemId: library.rootItemId,
+    webUrl: library.webUrl,
+    childCount: library.itemCount,
+    modified: library.lastScan,
+    protected: library.protected,
+    rightsPolicy: library.rightsPolicy,
+  };
 }
 
 function normalizeDirectorySearchQuery(value: string) {
@@ -328,57 +306,6 @@ function mapUserSuggestion(user: GraphUser): UserSuggestion | undefined {
   };
 }
 
-function mapReportSite(
-  site: SiteSummary,
-  libraries: LibrarySummary[],
-  permissions: PermissionEntry[],
-): ReportSiteSummary {
-  return {
-    siteId: site.id,
-    siteName: site.name,
-    hostname: site.hostname,
-    libraryCount: libraries.length,
-    protectedLibraryCount: libraries.filter((library) => library.protected).length,
-    standardLibraryCount: libraries.filter((library) => !library.protected).length,
-    directPermissionCount: permissions.filter(isDirectlyManageablePermission).length,
-    externalPermissionCount: permissions.filter((permission) => permission.tenant === "external").length,
-    inheritedPermissionCount: permissions.filter((permission) => permission.source === "inherited").length,
-  };
-}
-
-function isDirectlyManageablePermission(permission: PermissionEntry) {
-  return permission.canEditRole !== false || permission.canDelete !== false;
-}
-
-function mapReportPermission(
-  site: SiteSummary,
-  library: LibrarySummary,
-  permission: PermissionEntry,
-): ReportPermissionRow {
-  return {
-    id: `${site.id}:${library.id}:${permission.id}`,
-    siteName: site.name,
-    libraryName: library.name,
-    principalName: permission.displayName,
-    email: permission.email,
-    role: permission.role,
-    source: permission.source,
-    tenant: permission.tenant,
-  };
-}
-
-function sumBy(items: ReportSiteSummary[], key: keyof Pick<
-  ReportSiteSummary,
-  | "libraryCount"
-  | "protectedLibraryCount"
-  | "standardLibraryCount"
-  | "directPermissionCount"
-  | "externalPermissionCount"
-  | "inheritedPermissionCount"
->) {
-  return items.reduce((total, item) => total + item[key], 0);
-}
-
 function formatInviteErrors(permissions: GraphPermission[]) {
   const details = permissions
     .map((permission) => {
@@ -393,7 +320,7 @@ function formatInviteErrors(permissions: GraphPermission[]) {
   return [
     "Graph invitation failed.",
     ...details,
-    "Check external sharing policy, allowed domains, guest invitation settings, and whether the target email can be invited to this tenant.",
+    "Check SharePoint organization sharing, site sharing, domain restrictions, Microsoft Entra external collaboration settings, and whether this email domain is allowed.",
   ].join(" ");
 }
 
@@ -422,22 +349,6 @@ function mapLibrary(siteId: string, drive: GraphDrive, root: GraphDriveItem): Li
     rightsPolicy: protectedLibrary ? "Library RMS" : "Standard",
     lastScan: "Live Graph",
     webUrl: drive.webUrl,
-  };
-}
-
-function libraryToContentItem(library: LibrarySummary): ContentItem {
-  return {
-    id: library.id,
-    siteId: library.siteId,
-    name: library.name,
-    type: "library",
-    driveId: library.driveId,
-    itemId: library.rootItemId,
-    webUrl: library.webUrl,
-    childCount: library.itemCount,
-    modified: library.lastScan,
-    protected: library.protected,
-    rightsPolicy: library.rightsPolicy,
   };
 }
 
@@ -571,12 +482,12 @@ function mapIdentity(identity: GraphIdentity, type: "user" | "group") {
   };
 }
 
-function parseLibraryId(libraryId: string) {
-  const [driveId, itemId] = libraryId.split(":");
-  if (!driveId || !itemId) {
-    throw new Error("Invalid Graph library id.");
+function parseDriveItemId(itemId: string) {
+  const [driveId, graphItemId] = itemId.split(":");
+  if (!driveId || !graphItemId) {
+    throw new Error("Invalid Graph item id.");
   }
-  return [driveId, itemId] as const;
+  return [driveId, graphItemId] as const;
 }
 
 function toGraphRole(role: AccessRole) {

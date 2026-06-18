@@ -2,6 +2,7 @@ export type TokenProvider = () => Promise<string>;
 
 export type GraphCollection<T> = {
   value?: T[];
+  "@odata.nextLink"?: string;
 };
 
 export class GraphRequestClient {
@@ -9,7 +10,10 @@ export class GraphRequestClient {
 
   async request<T>(path: string, init: RequestInit = {}) {
     const token = await this.getToken();
-    const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    const url = path.startsWith("https://graph.microsoft.com/")
+      ? path
+      : `https://graph.microsoft.com/v1.0${path}`;
+    const response = await fetch(url, {
       ...init,
       headers: {
         Authorization: `Bearer ${token}`,

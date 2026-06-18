@@ -1,4 +1,4 @@
-import type { AuditLogDraft, AuditLogRecord } from "./types";
+import type { AuditLogDraft, AuditLogRecord } from "../../types";
 
 export interface AuditStore {
   write(entry: AuditLogDraft): Promise<void>;

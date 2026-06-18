@@ -2,7 +2,7 @@
 
 import { RefreshCw, Search } from "lucide-react";
 import { useState } from "react";
-import { roleLabels } from "@/lib/permission-labels";
+import { roleLabels } from "@/lib/features/admin";
 import type { AccessRole, AuditLogAction, AuditLogRecord, AuditLogStatus } from "@/lib/types";
 import { TableSkeleton } from "@/components/shared/Skeletons";
 
@@ -50,7 +50,7 @@ export function AuditPanel({
   });
 
   return (
-    <section className="page-section">
+    <section className="page-section audit-page-section">
       <div className="page-header with-actions">
         <div>
           <p className="section-label">Audit</p>
@@ -104,11 +104,11 @@ export function AuditPanel({
       </div>
 
       {isLoadingAudit ? (
-        <div className="audit-table">
+        <div className="audit-table audit-table-scroll">
           <TableSkeleton columns={7} rows={6} />
         </div>
       ) : (
-        <div className="audit-table" role="table" aria-label="Permission audit trail">
+        <div className="audit-table audit-table-scroll" role="table" aria-label="Permission audit trail">
           <div className="audit-table-head" role="row">
             <span>Time</span>
             <span>Action</span>

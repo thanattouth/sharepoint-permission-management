@@ -19,9 +19,8 @@ import {
 } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
-import { roleLabels } from "@/lib/permission-labels";
+import { roleLabels, type PermissionDraft } from "@/lib/features/admin";
 import type { AccessRole, AuditEntry, ContentItem, PermissionEntry, SiteSummary, UserSuggestion } from "@/lib/types";
-import type { PermissionDraft } from "@/lib/graph";
 import { TableSkeleton } from "@/components/shared/Skeletons";
 
 export type PendingPermissionAction =

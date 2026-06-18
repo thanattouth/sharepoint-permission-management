@@ -1,6 +1,6 @@
-import { auditListName, auditSite } from "./app-config";
-import type { GraphCollection, GraphRequestClient } from "./graph-request";
-import type { AccessRole, AuditLogAction, AuditLogDraft, AuditLogRecord, AuditLogStatus, PermissionEntry } from "./types";
+import { auditListName, auditSite } from "../../app-config";
+import type { GraphCollection, GraphRequestClient } from "../../graph-request";
+import type { AccessRole, AuditLogAction, AuditLogDraft, AuditLogRecord, AuditLogStatus, PermissionEntry } from "../../types";
 import type { AuditStore } from "./audit-store";
 
 type GraphSite = {

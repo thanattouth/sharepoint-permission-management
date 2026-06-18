@@ -344,6 +344,7 @@ button {
 .portal-main {
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
   min-width: 0;
 }
 
@@ -381,6 +382,9 @@ button {
 }
 
 .portal-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
   padding: 32px;
 }
 
@@ -647,6 +651,10 @@ h2 {
   box-shadow: var(--shadow);
   min-width: 0;
   padding: 24px;
+}
+
+.page-section {
+  width: 100%;
 }
 
 .page-header {
@@ -1898,6 +1906,50 @@ h2 {
   margin-bottom: 16px;
 }
 
+.review-scope-bar {
+  align-items: center;
+  background: #f8f9fa;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.review-owner-select {
+  align-items: center;
+  display: flex;
+  flex: 1 1 340px;
+  gap: 10px;
+}
+
+.review-owner-select span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.review-owner-select select {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  flex: 1;
+  font-size: 13px;
+  min-height: 38px;
+  min-width: 220px;
+  padding: 0 10px;
+}
+
+.review-scope-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .report-metric {
   background: #ffffff;
   border: 1px solid var(--line);
@@ -2037,6 +2089,32 @@ h2 {
   border-radius: 12px;
   overflow: hidden;
   overflow-x: auto;
+}
+
+.audit-page-section {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.audit-page-section .page-header,
+.audit-page-section .audit-search-bar,
+.audit-page-section .auth-error {
+  flex: 0 0 auto;
+}
+
+.audit-table-scroll {
+  flex: 1 1 auto;
+  min-height: 280px;
+  overflow: auto;
+}
+
+.audit-table-scroll .audit-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .audit-search-bar {
@@ -2255,7 +2333,7 @@ h2 {
   }
 
   .portal-main {
-    min-height: 0;
+    min-height: calc(100vh - 96px);
   }
 
   .portal-sidebar .brand {
@@ -2293,11 +2371,79 @@ h2 {
   .details-pane {
     position: static;
   }
+
+  .audit-page-section {
+    max-height: calc(100vh - 132px);
+  }
+}
+
+@media (max-width: 980px) and (min-width: 861px) {
+  .portal-sidebar {
+    align-items: center;
+    gap: 12px;
+    grid-template-columns: minmax(220px, 1fr) minmax(260px, 360px);
+    padding: 12px 18px;
+  }
+
+  .portal-sidebar .brand {
+    min-width: 0;
+  }
+
+  .sidebar-nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .sidebar-nav-item {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+
+  .sidebar-account-card {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 12px;
+  }
+
+  .portal-main {
+    min-height: calc(100vh - 156px);
+  }
+
+  .portal-content {
+    padding: 24px;
+  }
+
+  .page-section {
+    border-radius: 10px;
+    padding: 22px;
+  }
+
+  .audit-page-section {
+    max-height: calc(100vh - 204px);
+  }
+
+  .audit-table-head,
+  .audit-table-row {
+    grid-template-columns: 124px 118px minmax(150px, 1fr) minmax(150px, 1fr) 126px 96px 78px;
+    min-width: 880px;
+  }
 }
 
 @media (max-width: 860px) {
   .portal-content {
     padding: 18px;
+  }
+
+  .audit-page-section {
+    max-height: none;
+    min-height: calc(100vh - 180px);
+  }
+
+  .audit-table-scroll {
+    max-height: 60vh;
   }
 
   .portal-sidebar {

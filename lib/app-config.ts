@@ -6,6 +6,8 @@ export type TargetSiteConfig = {
 const defaultTenantDomain = "baht.net";
 const defaultProtectedLibraries = ["Confidential", "Secret"];
 const defaultAuditListName = "PermissionAuditLog";
+const defaultReviewScopeListName = "PermissionReviewScopes";
+const defaultReviewScanItemLimit = 2000;
 const defaultTargetSites: TargetSiteConfig[] = [
   {
     hostname: "bahtnet.sharepoint.com",
@@ -32,6 +34,14 @@ export const targetSites = parseTargetSites(process.env.NEXT_PUBLIC_TARGET_SITES
 export const auditSite = parseSingleTargetSite(process.env.NEXT_PUBLIC_AUDIT_SITE) ?? targetSites[0];
 export const auditListName = process.env.NEXT_PUBLIC_AUDIT_LIST_NAME?.trim() || defaultAuditListName;
 export const auditLogEnabled = process.env.NEXT_PUBLIC_AUDIT_LOG_ENABLED !== "false";
+export const reviewScopeSite = parseSingleTargetSite(process.env.NEXT_PUBLIC_REVIEW_SCOPE_SITE) ?? auditSite;
+export const reviewScopeListName = process.env.NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME?.trim() || defaultReviewScopeListName;
+export const reviewScopeListEnabled = process.env.NEXT_PUBLIC_REVIEW_SCOPE_LIST_ENABLED !== "false";
+export const reviewScanDescendantsEnabled = process.env.NEXT_PUBLIC_REVIEW_SCAN_DESCENDANTS !== "false";
+export const reviewScanItemLimit = parsePositiveInteger(
+  process.env.NEXT_PUBLIC_REVIEW_SCAN_ITEM_LIMIT,
+  defaultReviewScanItemLimit,
+);
 
 export function isInternalEmail(value: string) {
   const normalized = value.trim().toLowerCase();
@@ -74,4 +84,9 @@ function parseTargetSites(value: string | undefined): TargetSiteConfig[] | undef
 
 function parseSingleTargetSite(value: string | undefined) {
   return parseTargetSites(value)?.[0];
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

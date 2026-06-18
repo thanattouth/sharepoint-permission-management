@@ -6,7 +6,7 @@ import {
   type Configuration,
   type RedirectRequest,
 } from "@azure/msal-browser";
-import { graphReadScopes } from "./graph";
+import { graphReadScopes } from "./features/admin";
 
 const clientId = process.env.NEXT_PUBLIC_MSAL_CLIENT_ID;
 const tenantId = process.env.NEXT_PUBLIC_MSAL_TENANT_ID ?? "common";

@@ -1,4 +1,4 @@
-import type { AccessRole, PermissionEntry } from "./types";
+import type { AccessRole, PermissionEntry } from "../../types";
 
 export function normalizeSharePointPrincipals(permissions: PermissionEntry[], siteName: string) {
   return permissions.map((permission) => {

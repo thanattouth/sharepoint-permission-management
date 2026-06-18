@@ -23,6 +23,14 @@ Standalone Mermaid sources are available in [docs/diagrams](docs/diagrams):
 - `permission-change-flow.mmd`
 - `audit-data-model.mmd`
 
+Backend-facing application code is organized by feature under `lib/features`:
+
+- `lib/features/admin`: SharePoint inventory browsing, permission changes, permission labels, and SharePoint principal normalization.
+- `lib/features/reviewer`: owner scope parsing/loading plus permission review report and deep scan logic.
+- `lib/features/audit`: audit store interfaces and SharePoint List persistence.
+
+Shared cross-feature code stays in `lib`, such as authentication, app configuration, Microsoft Graph request handling, roles, and shared data types. Feature-specific code should import from `lib/features/...`.
+
 ## Run
 
 ```bash
@@ -46,9 +54,15 @@ NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES=Confidential,Secret
 NEXT_PUBLIC_AUDIT_SITE=bahtnet.sharepoint.com:/sites/DGCS
 NEXT_PUBLIC_AUDIT_LIST_NAME=PermissionAuditLog
 NEXT_PUBLIC_AUDIT_LOG_ENABLED=true
+NEXT_PUBLIC_REVIEW_SCOPE_SITE=bahtnet.sharepoint.com:/sites/DGCS
+NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME=PermissionReviewScopes
+NEXT_PUBLIC_REVIEW_SCOPE_LIST_ENABLED=true
+NEXT_PUBLIC_REVIEW_SCAN_DESCENDANTS=true
+NEXT_PUBLIC_REVIEW_SCAN_ITEM_LIMIT=2000
+NEXT_PUBLIC_REVIEW_SCOPES=[{"ownerEmail":"thanattouth@baht.net","ownerName":"Thanattouth Niticharoen","ownerRole":"OwnerRep","siteName":"DGCS","hostname":"bahtnet.sharepoint.com","path":"/sites/DGCS","libraryName":"Confidential","sensitivityLabel":"Confidential"}]
 ```
 
-Initial Graph scopes are declared in `lib/graph.ts`:
+Initial Graph scopes are declared in `lib/features/admin/sharepoint-permission-client.ts`:
 
 - `User.Read`
 - `User.ReadBasic.All`
@@ -56,7 +70,7 @@ Initial Graph scopes are declared in `lib/graph.ts`:
 - `Sites.ReadWrite.All`
 - `Files.ReadWrite.All`
 
-`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. For the role model, Admin can change permissions, Reviewer/ExecutiveUser can review configured sites and audit entries, and Internal User can browse configured sites but only sees standard/internal libraries.
+`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. Reviewer scope mappings are loaded from the `PermissionReviewScopes` SharePoint List configured by `NEXT_PUBLIC_REVIEW_SCOPE_SITE` and `NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME`; `NEXT_PUBLIC_REVIEW_SCOPES` remains as an optional local fallback/demo JSON array when the list is empty or unavailable. For the role model, Admin can change permissions, Reviewer/ExecutiveUser can review configured sites and audit entries, and Internal User can browse configured sites but only sees standard/internal libraries.
 
 The configured sites are loaded from Microsoft Graph after sign-in, followed by drives, drive items, and permissions for the selected workspace.
 
@@ -74,11 +88,33 @@ Audit persistence is isolated behind `AuditStore` in `lib/audit-store.ts`. The c
 
 For site-scoped permission actions, audit entries are written to the `PermissionAuditLog` list on the selected SharePoint site. App-wide events such as login and report refresh use `NEXT_PUBLIC_AUDIT_SITE` as the default audit location.
 
+## Reviewer Scope List
+
+Reviewer owner mappings are read from the `PermissionReviewScopes` SharePoint List. The minimum required column is `OwnerEmail`; recommended columns are `OwnerName`, `OwnerRole`, `SiteName`, `Hostname`, `Path`, `LibraryName`, `SensitivityLabel`, `Department`, `Section`, and `Active`.
+
+Example test item:
+
+```text
+OwnerEmail: .....@baht.net
+OwnerName: firstname lastname
+OwnerRole: OwnerRep
+SiteName: DGCS
+Hostname: bahtnet.sharepoint.com
+Path: /sites/DGCS
+LibraryName: Confidential
+SensitivityLabel: Confidential
+Active: Yes
+```
+
+When active scope mappings exist, the Reviewer screen asks the user to select an owner before loading a report. This prevents the app from scanning every configured site by default.
+
+With `NEXT_PUBLIC_REVIEW_SCAN_DESCENDANTS=true`, an owner-scoped review scans the full configured library hierarchy, including library root, folders, and files. `NEXT_PUBLIC_REVIEW_SCAN_ITEM_LIMIT` caps how many items a single refresh will traverse to protect large enterprise libraries from long-running browser scans.
+
 ## Graph Integration
 
 When the Entra settings are present, the app connects to Microsoft Graph after sign-in and loads:
 
-- Sites from the configured SharePoint paths in `lib/graph.ts`
+- Sites from the configured SharePoint paths in `lib/app-config.ts`
 - Document libraries from `GET /sites/{siteId}/drives`
 - Library root permissions from `GET /drives/{driveId}/items/{itemId}/permissions`
 
