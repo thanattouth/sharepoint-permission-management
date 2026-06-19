@@ -19,7 +19,7 @@ import {
 } from "@/features/admin/AdminPanels";
 import { AuditPanel } from "@/features/audit/AuditPanel";
 import { ReportsPanel } from "@/features/reviewer/ReportsPanel";
-import { acquireGraphToken, getSignedInAccount, isAuthConfigured, signInMicrosoft365, signOutMicrosoft365 } from "@/lib/auth";
+import { acquireGraphToken, appSessionMaxAgeMs, getSignedInAccount, isAuthConfigured, signInMicrosoft365, signOutMicrosoft365 } from "@/lib/auth";
 import { isInternalEmail } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore, type AuditStore } from "@/lib/features/audit";
@@ -64,6 +64,7 @@ type SavedSessionView = {
 
 const savedSessionViewKey = "spAccess:lastView";
 const signedOutMarkerKey = "spAccess:signedOut";
+const signedInAtKey = "spAccess:signedInAt";
 
 export default function Home() {
   const [signedIn, setSignedIn] = useState(false);
@@ -135,6 +136,14 @@ export default function Home() {
       try {
         const restoredAccount = await getSignedInAccount();
         if (!restoredAccount || cancelled) return;
+        if (isAppSessionExpired()) {
+          await expireAppSession();
+          if (!cancelled) {
+            setAuthError("Your session expired. Sign in again to continue.");
+          }
+          return;
+        }
+        ensureAppSessionStarted();
 
         const nextRoles = getAccountRoles(restoredAccount);
         if (nextRoles.length === 0) return;
@@ -204,6 +213,29 @@ export default function Home() {
     // Persists only navigation state; data is reloaded from Graph after refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signedIn, restoringSession, portalView, selectedSite, path, selectedItem]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+
+    const remainingMs = getRemainingAppSessionMs();
+    const expireCurrentSession = async () => {
+      await signOut();
+      setAuthError("Your session expired. Sign in again to continue.");
+    };
+
+    if (remainingMs <= 0) {
+      void expireCurrentSession();
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void expireCurrentSession();
+    }, remainingMs);
+
+    return () => window.clearTimeout(timeout);
+    // The timeout intentionally follows the current signed-in session lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn]);
 
   useEffect(() => {
     if (!signedIn || !selectedItem) {
@@ -289,6 +321,7 @@ export default function Home() {
       window.sessionStorage.removeItem(signedOutMarkerKey);
       const response = await signInMicrosoft365();
       if (!response) return;
+      startAppSession();
 
       const nextRoles = getAccountRoles(response.account);
       if (nextRoles.length === 0) {
@@ -371,6 +404,7 @@ export default function Home() {
     setAuditRecords([]);
     setAuditError("");
     window.sessionStorage.setItem(signedOutMarkerKey, "true");
+    window.sessionStorage.removeItem(signedInAtKey);
     clearSavedSessionView();
     replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
 
@@ -1293,5 +1327,38 @@ function saveSessionView(view: SavedSessionView) {
 
 function clearSavedSessionView() {
   window.sessionStorage.removeItem(savedSessionViewKey);
+}
+
+function startAppSession() {
+  window.sessionStorage.setItem(signedInAtKey, Date.now().toString());
+}
+
+function ensureAppSessionStarted() {
+  if (!window.sessionStorage.getItem(signedInAtKey)) {
+    startAppSession();
+  }
+}
+
+function getAppSessionStartedAt() {
+  const raw = window.sessionStorage.getItem(signedInAtKey);
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getRemainingAppSessionMs() {
+  const startedAt = getAppSessionStartedAt();
+  if (!startedAt) return appSessionMaxAgeMs;
+  return Math.max(appSessionMaxAgeMs - (Date.now() - startedAt), 0);
+}
+
+function isAppSessionExpired() {
+  return getRemainingAppSessionMs() <= 0;
+}
+
+async function expireAppSession() {
+  window.sessionStorage.setItem(signedOutMarkerKey, "true");
+  window.sessionStorage.removeItem(signedInAtKey);
+  clearSavedSessionView();
+  await signOutMicrosoft365();
 }
 

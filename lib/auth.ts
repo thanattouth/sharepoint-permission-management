@@ -10,8 +10,13 @@ import { graphReadScopes } from "./features/admin";
 
 const clientId = process.env.NEXT_PUBLIC_MSAL_CLIENT_ID;
 const tenantId = process.env.NEXT_PUBLIC_MSAL_TENANT_ID ?? "common";
+const defaultAppSessionMaxMinutes = 480;
 
 export const isAuthConfigured = Boolean(clientId);
+export const appSessionMaxAgeMs = parsePositiveInteger(
+  process.env.NEXT_PUBLIC_APP_SESSION_MAX_MINUTES,
+  defaultAppSessionMaxMinutes,
+) * 60 * 1000;
 
 export const msalConfig: Configuration = {
   auth: {
@@ -27,6 +32,7 @@ export const msalConfig: Configuration = {
 
 export const loginRequest: RedirectRequest = {
   scopes: ["User.Read"],
+  prompt: "select_account",
 };
 
 let msalInstance: PublicClientApplication | undefined;
@@ -145,6 +151,11 @@ export async function signOutMicrosoft365(account?: AccountInfo | null) {
 
   await msal.clearCache({ account: activeAccount });
   clearStaleInteractionState();
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export async function acquireGraphToken(

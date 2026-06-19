@@ -47,6 +47,7 @@ Create `.env.local` or `.env` when the App Registration is ready:
 ```bash
 NEXT_PUBLIC_MSAL_CLIENT_ID=your-client-id
 NEXT_PUBLIC_MSAL_TENANT_ID=your-tenant-id
+NEXT_PUBLIC_APP_SESSION_MAX_MINUTES=480
 NEXT_PUBLIC_TENANT_DOMAIN=baht.net
 NEXT_PUBLIC_INTERNAL_DOMAINS=baht.net,bahtnet.onmicrosoft.com
 NEXT_PUBLIC_TARGET_SITES=bahtnet.sharepoint.com:/sites/DGCS,bahtnet.sharepoint.com:/sites/EngineerSite
@@ -70,7 +71,7 @@ Initial Graph scopes are declared in `lib/features/admin/sharepoint-permission-c
 - `Sites.ReadWrite.All`
 - `Files.ReadWrite.All`
 
-`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. Reviewer scope mappings are loaded from the `PermissionReviewScopes` SharePoint List configured by `NEXT_PUBLIC_REVIEW_SCOPE_SITE` and `NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME`; `NEXT_PUBLIC_REVIEW_SCOPES` remains as an optional local fallback/demo JSON array when the list is empty or unavailable. For the role model, Admin can change permissions, Reviewer/ExecutiveUser can review configured sites and audit entries, and Internal User can browse configured sites but only sees standard/internal libraries.
+`NEXT_PUBLIC_TARGET_SITES` is a comma-separated list of `hostname:/sites/path` entries. `NEXT_PUBLIC_APP_SESSION_MAX_MINUTES` controls the app-level session lifetime before the user must sign in again. `NEXT_PUBLIC_INTERNAL_DOMAINS` controls which email domains are treated as internal in reports. `NEXT_PUBLIC_PROTECTED_LIBRARY_NAMES` controls which document libraries are labeled as protected by the permission console. Reviewer scope mappings are loaded from the `PermissionReviewScopes` SharePoint List configured by `NEXT_PUBLIC_REVIEW_SCOPE_SITE` and `NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME`; `NEXT_PUBLIC_REVIEW_SCOPES` remains as an optional local fallback/demo JSON array when the list is empty or unavailable. For the role model, Admin can change permissions, Reviewer/ExecutiveUser can review configured sites and audit entries, and Internal User can browse configured sites but only sees standard/internal libraries.
 
 The configured sites are loaded from Microsoft Graph after sign-in, followed by drives, drive items, and permissions for the selected workspace.
 
