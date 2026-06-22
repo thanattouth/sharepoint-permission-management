@@ -1,7 +1,6 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
-import { useState } from "react";
 import { isDefaultSharePointGroup, roleLabels } from "@/lib/features/admin";
 import type { ReviewScopeOwner } from "@/lib/features/reviewer";
 import type { PermissionEntry, ReportSummary } from "@/lib/types";
@@ -26,13 +25,10 @@ export function ReportsPanel({
   onOwnerChange,
   onRefresh,
 }: ReportsPanelProps) {
-  const [showAllPermissions, setShowAllPermissions] = useState(false);
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
   const isLoadingReport = loadingLabel === "Loading reports";
   const reviewerPermissions = (report?.permissions ?? []).filter((permission) => !isDefaultReportSharePointGroup(permission));
   const hiddenSystemPermissionCount = Math.max((report?.permissions.length ?? 0) - reviewerPermissions.length, 0);
-  const visibleReportPermissions = showAllPermissions ? reviewerPermissions : reviewerPermissions.slice(0, 8);
-  const hiddenPermissionCount = Math.max(reviewerPermissions.length - visibleReportPermissions.length, 0);
 
   return (
     <section className="page-section">
@@ -111,15 +107,10 @@ export function ReportsPanel({
             </div>
             <div className="section-title-actions">
               <span>{reviewerPermissions.length}</span>
-              {reviewerPermissions.length > 8 && (
-                <button className="text-button" type="button" onClick={() => setShowAllPermissions((current) => !current)}>
-                  {showAllPermissions ? "Show less" : "See all"}
-                </button>
-              )}
             </div>
           </div>
 
-          <div className="report-permission-table" role="table" aria-label="Permission inventory">
+          <div className="report-permission-table report-permission-table-scroll" role="table" aria-label="Permission inventory">
             <div className="report-permission-head" role="row">
               <span>Principal</span>
               <span>Role</span>
@@ -127,7 +118,7 @@ export function ReportsPanel({
               <span>Item scope</span>
               <span>Tenant</span>
             </div>
-            {visibleReportPermissions.map((permission) => (
+            {reviewerPermissions.map((permission) => (
               <div className="report-permission-row" role="row" key={permission.id}>
                 <div>
                   <strong>{permission.principalName}</strong>
@@ -146,11 +137,6 @@ export function ReportsPanel({
               <div className="empty-row">No non-system permissions found in configured library roots.</div>
             )}
           </div>
-          {hiddenPermissionCount > 0 && (
-            <p className="table-footnote">
-              Showing {visibleReportPermissions.length} of {reviewerPermissions.length}. Use See all for the full inventory.
-            </p>
-          )}
           {hiddenSystemPermissionCount > 0 && (
             <p className="table-footnote">
               Hidden {hiddenSystemPermissionCount} default SharePoint Owners, Members, and Visitors group row{hiddenSystemPermissionCount > 1 ? "s" : ""}.

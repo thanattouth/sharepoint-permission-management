@@ -2015,6 +2015,17 @@ h2 {
   overflow-x: auto;
 }
 
+.report-permission-table-scroll {
+  max-height: min(520px, 56vh);
+  overflow: auto;
+}
+
+.report-permission-table-scroll .report-permission-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .report-table-head,
 .report-table-row,
 .report-permission-head,
@@ -2680,6 +2691,11 @@ h2 {
 
   .report-permission-table {
     border: 0;
+  }
+
+  .report-permission-table-scroll {
+    max-height: 60vh;
+    overflow: auto;
   }
 
   .report-table-row,
