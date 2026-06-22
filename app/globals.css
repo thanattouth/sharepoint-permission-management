@@ -1113,9 +1113,29 @@ h2 {
 }
 
 .item-name-button > svg,
-.item-name-button .library-icon {
+.item-name-button .library-icon,
+.item-name-button .item-icon-stack {
   color: var(--blue);
   flex: 0 0 auto;
+}
+
+.item-icon-stack {
+  align-items: center;
+  display: inline-flex;
+  height: 20px;
+  justify-content: center;
+  position: relative;
+  width: 20px;
+}
+
+.item-icon-lock {
+  background: #ffffff;
+  border-radius: 999px;
+  bottom: -4px;
+  color: var(--blue);
+  padding: 1px;
+  position: absolute;
+  right: -4px;
 }
 
 .item-name-button span {

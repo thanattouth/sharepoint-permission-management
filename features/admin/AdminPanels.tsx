@@ -1,14 +1,15 @@
 "use client";
 
 import {
+  Archive,
   ArrowLeft,
   Check,
   ChevronRight,
   File,
-  FileLock2,
   Folder,
   Home as HomeIcon,
   Library,
+  LockKeyhole,
   Plus,
   RefreshCw,
   Search,
@@ -760,8 +761,15 @@ function DetailsSkeleton() {
 }
 
 function ItemIcon({ item }: { item: ContentItem }) {
-  if (item.protected && item.type === "library") return <FileLock2 size={20} />;
-  if (item.type === "library") return <Library size={20} />;
+  if (item.protected && item.type === "library") {
+    return (
+      <span className="item-icon-stack protected-library-icon" aria-hidden="true">
+        <Archive size={20} />
+        <LockKeyhole className="item-icon-lock" size={11} strokeWidth={2.7} />
+      </span>
+    );
+  }
+  if (item.type === "library") return <Archive size={20} />;
   if (item.type === "folder") return <Folder size={20} />;
   return <File size={20} />;
 }
