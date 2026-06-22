@@ -299,9 +299,12 @@ export function ContentExplorer({
               className={`items-row ${currentSelection?.id === item.id ? "selected" : ""}`}
               key={item.id}
               onClick={() => setSelectedContent(item)}
+              onDoubleClick={() => onOpen(item)}
             >
               <button
                 className="item-name-button"
+                title={`Open ${item.name}`}
+                type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpen(item);

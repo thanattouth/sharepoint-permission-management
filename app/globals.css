@@ -1099,11 +1099,14 @@ h2 {
   background: transparent;
   border: 0;
   color: var(--text);
+  cursor: pointer;
   display: flex;
   gap: 10px;
+  justify-self: start;
+  max-width: 100%;
   min-width: 0;
   text-align: left;
-  width: 100%;
+  width: fit-content;
 }
 
 .item-name-button:hover strong {
