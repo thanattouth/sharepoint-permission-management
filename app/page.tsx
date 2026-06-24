@@ -24,7 +24,7 @@ import { isInternalEmail } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore, type AuditStore } from "@/lib/features/audit";
 import { normalizeSharePointPrincipals, roleLabels } from "@/lib/features/admin";
-import { createReviewScopeStore, fallbackReviewScopes, getReviewScopeOwners, hasReviewScopes, type ReviewScope, type ReviewScopeStore } from "@/lib/features/reviewer";
+import { createReviewScopeStore, fallbackReviewScopes, getReviewScopeOwners, type ReviewScope, type ReviewScopeStore } from "@/lib/features/reviewer";
 import {
   graphReadScopes,
   graphWriteScopes,
@@ -172,7 +172,7 @@ export default function Home() {
         if (cancelled) return;
 
         setReviewScopes(nextReviewScopes);
-        await restoreSavedSessionView(nextClient, nextAuditStore, nextRoles, nextReviewScopes);
+        await restoreSavedSessionView(nextClient, nextAuditStore, nextRoles, nextReviewScopes, getSignedInEmail(restoredAccount));
       } catch {
         clearSavedSessionView();
       } finally {
@@ -357,10 +357,12 @@ export default function Home() {
           : nextCapabilities.canViewAudit
             ? "audit"
             : "workspace";
+      const initialReviewOwnerEmail = getSignedInEmail(response.account);
       const initialReportSummary = initialPortalView === "reports"
-        ? hasReviewScopes(nextReviewScopes)
-          ? null
-          : await nextClient.getReportSummary({ reviewScopes: nextReviewScopes }).catch(() => null)
+        ? await nextClient.getReportSummary({
+            ownerEmail: initialReviewOwnerEmail,
+            reviewScopes: nextReviewScopes,
+          }).catch(() => null)
         : null;
       const initialAuditRecords = initialPortalView === "audit"
         ? await nextAuditStore.list(auditRecordLimit).catch(() => [])
@@ -372,6 +374,7 @@ export default function Home() {
       setRoleLabel(getRoleLabel(getPrimaryRole(nextRoles)));
       setSites(nextSites);
       setReviewScopes(nextReviewScopes);
+      setSelectedReviewOwnerEmail(initialReviewOwnerEmail);
       setPortalView(initialPortalView);
       setReportSummary(initialReportSummary);
       setAuditRecords(initialAuditRecords);
@@ -433,7 +436,7 @@ export default function Home() {
     pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
   }
 
-  async function openReports(ownerEmail = selectedReviewOwnerEmail) {
+  async function openReports(ownerEmail = getSignedInEmail(account)) {
     if (!capabilities.canViewReports) return;
 
     setPortalView("reports");
@@ -448,24 +451,12 @@ export default function Home() {
     setDataConsentRequired(false);
     setReportError("");
 
-    if (hasReviewScopes(reviewScopes) && !ownerEmail) {
-      setReportSummary(null);
-      setLoadingLabel("");
-      return;
-    }
-
     setSelectedReviewOwnerEmail(ownerEmail);
     setLoadingLabel("Loading reports");
 
     try {
       const nextReviewScopes = await loadReviewScopesWithStore(reviewScopeStore);
       setReviewScopes(nextReviewScopes);
-
-      if (hasReviewScopes(nextReviewScopes) && !ownerEmail) {
-        setReportSummary(null);
-        setLoadingLabel("");
-        return;
-      }
 
       setReportSummary(await graphClient.getReportSummary({ ownerEmail, reviewScopes: nextReviewScopes }));
       void writeAudit({
@@ -911,14 +902,12 @@ export default function Home() {
       setReviewScopes(nextReviewScopes);
 
       if (portalView === "reports" && capabilities.canViewReports) {
-        if (hasReviewScopes(nextReviewScopes) && !selectedReviewOwnerEmail) {
-          setReportSummary(null);
-        } else {
-          setReportSummary(await consentClient.getReportSummary({
-            ownerEmail: selectedReviewOwnerEmail,
-            reviewScopes: nextReviewScopes,
-          }));
-        }
+        const ownerEmail = selectedReviewOwnerEmail || getSignedInEmail(account);
+        setSelectedReviewOwnerEmail(ownerEmail);
+        setReportSummary(await consentClient.getReportSummary({
+          ownerEmail,
+          reviewScopes: nextReviewScopes,
+        }));
         setReportError("");
       }
 
@@ -1043,6 +1032,7 @@ export default function Home() {
     store: AuditStore,
     roles: ReturnType<typeof getAccountRoles>,
     nextReviewScopes = reviewScopes,
+    reviewerEmail = getSignedInEmail(account),
   ) {
     const saved = readSavedSessionView();
     const roleCapabilities = getCapabilities(roles);
@@ -1050,9 +1040,8 @@ export default function Home() {
       replaceAppHistory({ selectedSite: null, path: [], selectedItem: null });
       if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewReports) {
         setPortalView("reports");
-        if (!hasReviewScopes(nextReviewScopes)) {
-          setReportSummary(await client.getReportSummary({ reviewScopes: nextReviewScopes }));
-        }
+        setSelectedReviewOwnerEmail(reviewerEmail);
+        setReportSummary(await client.getReportSummary({ ownerEmail: reviewerEmail, reviewScopes: nextReviewScopes }));
       } else if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewAudit) {
         setPortalView("audit");
         setAuditRecords(await store.list(auditRecordLimit));
@@ -1075,9 +1064,8 @@ export default function Home() {
 
     try {
       if (restoredPortalView === "reports") {
-        if (!hasReviewScopes(nextReviewScopes)) {
-          setReportSummary(await client.getReportSummary({ reviewScopes: nextReviewScopes }));
-        }
+        setSelectedReviewOwnerEmail(reviewerEmail);
+        setReportSummary(await client.getReportSummary({ ownerEmail: reviewerEmail, reviewScopes: nextReviewScopes }));
         return;
       }
 
@@ -1234,7 +1222,6 @@ export default function Home() {
               reportError={reportError}
               reviewOwners={reviewScopeOwners}
               selectedOwnerEmail={selectedReviewOwnerEmail}
-              onOwnerChange={setSelectedReviewOwnerEmail}
               onRefresh={openReports}
             />
           ) : portalView === "audit" ? (
@@ -1393,6 +1380,10 @@ function extractGraphRequestId(message: string) {
 function getPermissionLinkNotice(action: string, item: ContentItem | null, targetEmail: string) {
   if (!item?.webUrl) return "";
   return `${action} for ${targetEmail}.`;
+}
+
+function getSignedInEmail(account: AccountInfo | null | undefined) {
+  return account?.username?.trim().toLowerCase() ?? "";
 }
 
 async function copyPermissionLink(url: string | undefined) {

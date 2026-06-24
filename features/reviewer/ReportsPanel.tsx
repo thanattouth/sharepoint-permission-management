@@ -12,7 +12,6 @@ type ReportsPanelProps = {
   loadingLabel: string;
   reviewOwners: ReviewScopeOwner[];
   selectedOwnerEmail: string;
-  onOwnerChange: (ownerEmail: string) => void;
   onRefresh: (ownerEmail?: string) => void;
 };
 
@@ -22,13 +21,17 @@ export function ReportsPanel({
   loadingLabel,
   reviewOwners,
   selectedOwnerEmail,
-  onOwnerChange,
   onRefresh,
 }: ReportsPanelProps) {
   const generatedAt = report?.generatedAt ? new Date(report.generatedAt).toLocaleString() : "Not generated";
   const isLoadingReport = loadingLabel === "Loading reports";
   const reviewerPermissions = (report?.permissions ?? []).filter((permission) => !isDefaultReportSharePointGroup(permission));
   const hiddenSystemPermissionCount = Math.max((report?.permissions.length ?? 0) - reviewerPermissions.length, 0);
+  const selectedOwner = reviewOwners.find((owner) => owner.email === selectedOwnerEmail.toLowerCase());
+  const hasConfiguredScopes = reviewOwners.length > 0;
+  const mappedSiteText = report
+    ? `${report.siteCount.toLocaleString()} site${report.siteCount === 1 ? "" : "s"} and ${report.libraryCount.toLocaleString()} librar${report.libraryCount === 1 ? "y" : "ies"}`
+    : "mapped sites and libraries";
 
   return (
     <section className="page-section">
@@ -38,7 +41,7 @@ export function ReportsPanel({
           <h1>Permission Review</h1>
           <p>Read-only inventory summary across configured SharePoint sites.</p>
         </div>
-        <button className="secondary-button" disabled={isLoadingReport || (reviewOwners.length > 0 && !selectedOwnerEmail)} onClick={() => onRefresh(selectedOwnerEmail)}>
+        <button className="secondary-button" disabled={isLoadingReport} onClick={() => onRefresh(selectedOwnerEmail || undefined)}>
           <RefreshCw className={isLoadingReport ? "spin-icon" : ""} size={17} />
           Refresh review
         </button>
@@ -46,29 +49,17 @@ export function ReportsPanel({
 
       {reportError && <div className="auth-error">{reportError}</div>}
 
-      {reviewOwners.length > 0 && (
+      {hasConfiguredScopes && (
         <div className="review-scope-bar">
-          <label className="review-owner-select">
-            <span>Owner scope</span>
-            <select
-              aria-label="Select owner scope"
-              onChange={(event) => {
-                const ownerEmail = event.target.value;
-                onOwnerChange(ownerEmail);
-                if (ownerEmail) onRefresh(ownerEmail);
-              }}
-              value={selectedOwnerEmail}
-            >
-              <option value="">Select owner</option>
-              {reviewOwners.map((owner) => (
-                <option value={owner.email} key={owner.email}>
-                  {owner.name} ({owner.role}) - {owner.scopeCount}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="review-scope-identity">
+            <span>Your review scope</span>
+            <strong>{selectedOwner?.name ?? selectedOwnerEmail}</strong>
+            <small>{selectedOwnerEmail}</small>
+          </div>
           <span className="review-scope-note">
-            Review loads only mapped sites and libraries for the selected owner.
+            {selectedOwner
+              ? `Loaded from your mapped scope: ${mappedSiteText}. ${selectedOwner.scopeCount.toLocaleString()} mapping${selectedOwner.scopeCount === 1 ? "" : "s"} are assigned to you.`
+              : "No review scope is mapped to this signed-in account yet. Ask an admin to add this account to the review scope list."}
           </span>
         </div>
       )}
@@ -184,7 +175,9 @@ export function ReportsPanel({
 
       {!report && !reportError && loadingLabel !== "Loading reports" && (
         <div className="empty-row site-empty-state">
-          {reviewOwners.length > 0 ? "Select an owner scope to load the full permission review." : "No report data loaded."}
+          {hasConfiguredScopes
+            ? "No mapped review data is available for this signed-in account."
+            : "No report data loaded."}
         </div>
       )}
     </section>

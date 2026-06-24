@@ -1985,36 +1985,37 @@ h2 {
   padding: 12px;
 }
 
-.review-owner-select {
-  align-items: center;
-  display: flex;
-  flex: 1 1 340px;
-  gap: 10px;
+.review-scope-identity {
+  display: grid;
+  flex: 0 1 320px;
+  gap: 3px;
+  min-width: 220px;
 }
 
-.review-owner-select span {
+.review-scope-identity span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
-  white-space: nowrap;
 }
 
-.review-owner-select select {
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.review-scope-identity strong {
   color: var(--text);
-  flex: 1;
-  font-size: 13px;
-  min-height: 38px;
-  min-width: 220px;
-  padding: 0 10px;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.review-scope-identity small {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .review-scope-note {
   color: var(--muted);
+  flex: 1 1 360px;
   font-size: 12px;
+  line-height: 1.45;
 }
 
 .report-metric {
