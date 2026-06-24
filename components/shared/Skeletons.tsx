@@ -7,14 +7,7 @@ export function ReportSkeleton() {
         <span className="skeleton-line short" />
         <strong className="skeleton-line medium" />
       </div>
-      <div className="report-metrics">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div className="report-metric skeleton-metric" key={`metric-skeleton-${index}`}>
-            <span className="skeleton-line short" />
-            <span className="skeleton-line medium" />
-          </div>
-        ))}
-      </div>
+      <TableSkeleton columns={6} rows={1} />
       <TableSkeleton columns={5} rows={5} />
     </div>
   );

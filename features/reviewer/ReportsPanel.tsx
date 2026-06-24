@@ -80,15 +80,38 @@ export function ReportsPanel({
             {report.scanLimitReached && <span className="risk-text">Scan limit reached</span>}
           </div>
 
-          <div className="report-metrics">
-            <ReportMetric label="Sites" value={report.siteCount} />
-            <ReportMetric label="Libraries" value={report.libraryCount} />
-            <ReportMetric label="Protected" value={report.protectedLibraryCount} />
-            <ReportMetric label="Standard" value={report.standardLibraryCount} />
-            <ReportMetric label="Can edit here" value={report.directPermissionCount} />
-            <ReportMetric label="External access" value={report.externalPermissionCount} tone="risk" />
-            <ReportMetric label="From parent" value={report.inheritedPermissionCount} />
-            <ReportMetric label="Permission rows" value={reviewerPermissions.length} />
+          <div className="permission-section-title">
+            <div>
+              <p className="section-label">Site Summary</p>
+              <h2>Coverage by site</h2>
+            </div>
+            <div className="section-title-actions">
+              <span>{report.sites.length}</span>
+            </div>
+          </div>
+
+          <div className="report-table" role="table" aria-label="Site report">
+            <div className="report-table-head" role="row">
+              <span>Site</span>
+              <span>Libraries</span>
+              <span>Protected</span>
+              <span>Can edit here</span>
+              <span>External</span>
+              <span>From parent</span>
+            </div>
+            {report.sites.map((site) => (
+              <div className="report-table-row" role="row" key={site.siteId}>
+                <div>
+                  <strong>{site.siteName}</strong>
+                  <small>{site.hostname}</small>
+                </div>
+                <span>{site.libraryCount}</span>
+                <span>{site.protectedLibraryCount}</span>
+                <span>{site.directPermissionCount}</span>
+                <span className={site.externalPermissionCount > 0 ? "risk-text" : ""}>{site.externalPermissionCount}</span>
+                <span>{site.inheritedPermissionCount}</span>
+              </div>
+            ))}
           </div>
 
           <div className="permission-section-title">
@@ -138,38 +161,6 @@ export function ReportsPanel({
               The review reached the configured item scan limit. Increase NEXT_PUBLIC_REVIEW_SCAN_ITEM_LIMIT to scan more items.
             </p>
           )}
-
-          <div className="permission-section-title">
-            <div>
-              <p className="section-label">Site Summary</p>
-              <h2>Coverage by site</h2>
-            </div>
-            <span>{report.sites.length}</span>
-          </div>
-
-          <div className="report-table" role="table" aria-label="Site report">
-            <div className="report-table-head" role="row">
-              <span>Site</span>
-              <span>Libraries</span>
-              <span>Protected</span>
-              <span>Can edit here</span>
-              <span>External</span>
-              <span>From parent</span>
-            </div>
-            {report.sites.map((site) => (
-              <div className="report-table-row" role="row" key={site.siteId}>
-                <div>
-                  <strong>{site.siteName}</strong>
-                  <small>{site.hostname}</small>
-                </div>
-                <span>{site.libraryCount}</span>
-                <span>{site.protectedLibraryCount}</span>
-                <span>{site.directPermissionCount}</span>
-                <span className={site.externalPermissionCount > 0 ? "risk-text" : ""}>{site.externalPermissionCount}</span>
-                <span>{site.inheritedPermissionCount}</span>
-              </div>
-            ))}
-          </div>
         </>
       )}
 
@@ -181,23 +172,6 @@ export function ReportsPanel({
         </div>
       )}
     </section>
-  );
-}
-
-function ReportMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "risk";
-}) {
-  return (
-    <div className={`report-metric ${tone ?? ""}`}>
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </div>
   );
 }
 
