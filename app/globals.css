@@ -605,6 +605,48 @@ h2 {
   outline: 3px solid rgba(0, 96, 171, 0.12);
 }
 
+.approval-field input:disabled {
+  background: #f8f9fa;
+  color: var(--muted);
+}
+
+.permission-link-result {
+  align-items: flex-start;
+  background: #eef7f1;
+  border: 1px solid #bfdfc8;
+  border-radius: 8px;
+  color: #1d7440;
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.permission-link-result svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.permission-link-result div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.permission-link-result strong,
+.permission-link-result span {
+  overflow-wrap: anywhere;
+}
+
+.permission-link-result span {
+  color: #2f7048;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.permission-link-result .secondary-button {
+  justify-self: flex-start;
+}
+
 .confirm-error {
   margin: 0;
 }

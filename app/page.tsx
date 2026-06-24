@@ -86,6 +86,7 @@ export default function Home() {
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<AccessRole>("viewer");
   const [approvalRequestNo, setApprovalRequestNo] = useState("");
+  const [permissionLinkNotice, setPermissionLinkNotice] = useState("");
   const [pendingPermissionAction, setPendingPermissionAction] = useState<PendingPermissionAction | null>(null);
   const [userSuggestions, setUserSuggestions] = useState<UserSuggestion[]>([]);
   const [suggestionError, setSuggestionError] = useState("");
@@ -397,6 +398,7 @@ export default function Home() {
     setQuery("");
     setNewEmail("");
     setApprovalRequestNo("");
+    setPermissionLinkNotice("");
     setAuthError("");
     setDataError("");
     setReportSummary(null);
@@ -425,6 +427,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
+    setPermissionLinkNotice("");
     setDataError("");
     setDataConsentRequired(false);
     pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
@@ -440,6 +443,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
+    setPermissionLinkNotice("");
     setDataError("");
     setDataConsentRequired(false);
     setReportError("");
@@ -491,6 +495,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
+    setPermissionLinkNotice("");
     setDataError("");
     setDataConsentRequired(false);
     setAuditError("");
@@ -575,6 +580,7 @@ export default function Home() {
     setPath(path.slice(0, index + 1));
     setSelectedItem(null);
     setPermissions([]);
+    setPermissionLinkNotice("");
     setQuery("");
     setDataError("");
     setLoadingLabel(`Opening ${target.name}`);
@@ -619,6 +625,7 @@ export default function Home() {
     setQuery("");
     setDataError("");
     setDataConsentRequired(false);
+    setPermissionLinkNotice("");
     setLoadingLabel("Loading permissions");
 
     try {
@@ -663,6 +670,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
+    setPermissionLinkNotice("");
     if (selectedSite) {
       pushAppHistory({ selectedSite, path, selectedItem: null });
     }
@@ -708,6 +716,7 @@ export default function Home() {
   function openPermissionConfirmation(action: PendingPermissionAction) {
     setDataError("");
     setApprovalRequestNo("");
+    setPermissionLinkNotice("");
     setPendingPermissionAction(action);
   }
 
@@ -715,6 +724,7 @@ export default function Home() {
     if (isPermissionActionLoading()) return;
     setPendingPermissionAction(null);
     setApprovalRequestNo("");
+    setPermissionLinkNotice("");
     setDataError("");
   }
 
@@ -762,8 +772,7 @@ export default function Home() {
       });
       setNewEmail("");
       setUserSuggestions([]);
-      setPendingPermissionAction(null);
-      setApprovalRequestNo("");
+      setPermissionLinkNotice(getPermissionLinkNotice("Access granted", selectedItem, draft.email));
     } catch (error) {
       const message = getErrorMessage(error, "Unable to grant permission.");
       setDataError(message);
@@ -794,6 +803,7 @@ export default function Home() {
         current.map((permission) => (permission.id === changed.id ? updated : permission)),
       );
       addAudit(`Changed role to ${roleLabels[role]}`, changed.email, "Success");
+      setPermissionLinkNotice(getPermissionLinkNotice("Role updated", selectedItem, changed.email));
       void writeAudit({
         action: "UpdateRole",
         status: "Success",
@@ -805,8 +815,6 @@ export default function Home() {
         source: changed.source,
         tenantType: changed.tenant,
       });
-      setPendingPermissionAction(null);
-      setApprovalRequestNo("");
     } catch (error) {
       const message = getErrorMessage(error, "Unable to update role.");
       setDataError(message);
@@ -1295,9 +1303,18 @@ export default function Home() {
           approvalRequestNo={approvalRequestNo}
           error={dataError}
           isSubmitting={isPermissionActionLoading()}
+          successLink={
+            permissionLinkNotice && selectedItem?.webUrl
+              ? {
+                  message: permissionLinkNotice,
+                  url: selectedItem.webUrl,
+                }
+              : undefined
+          }
           onApprovalRequestNoChange={setApprovalRequestNo}
           onCancel={closePermissionConfirmation}
           onConfirm={confirmPermissionAction}
+          onCopyLink={(url) => void copyPermissionLink(url)}
         />
       )}
 
@@ -1371,6 +1388,21 @@ function getSharePointDataError(error: unknown) {
 
 function extractGraphRequestId(message: string) {
   return message.match(/Request ID:\s*([0-9a-f-]+)/i)?.[1];
+}
+
+function getPermissionLinkNotice(action: string, item: ContentItem | null, targetEmail: string) {
+  if (!item?.webUrl) return "";
+  return `${action} for ${targetEmail}.`;
+}
+
+async function copyPermissionLink(url: string | undefined) {
+  if (!url || typeof navigator === "undefined") return;
+
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    window.prompt("Copy this SharePoint link", url);
+  }
 }
 
 function readSavedSessionView(): SavedSessionView | undefined {

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Check,
   ChevronRight,
+  Copy,
   File,
   Folder,
   Home as HomeIcon,
@@ -127,19 +128,27 @@ export function PermissionActionDialog({
   approvalRequestNo,
   error,
   isSubmitting,
+  successLink,
   onApprovalRequestNoChange,
   onCancel,
   onConfirm,
+  onCopyLink,
 }: {
   action: PendingPermissionAction;
   approvalRequestNo: string;
   error: string;
   isSubmitting: boolean;
+  successLink?: {
+    message: string;
+    url: string;
+  };
   onApprovalRequestNoChange: (value: string) => void;
   onCancel: () => void;
   onConfirm: (event: FormEvent<HTMLFormElement>) => void;
+  onCopyLink: (url: string) => void;
 }) {
   const summary = getPermissionActionSummary(action);
+  const isComplete = Boolean(successLink);
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -175,22 +184,39 @@ export function PermissionActionDialog({
           <input
             autoFocus
             aria-label="Approved request number"
+            disabled={isComplete}
             onChange={(event) => onApprovalRequestNoChange(event.target.value)}
             placeholder="e.g. REQ-2026-0001"
             value={approvalRequestNo}
           />
         </label>
 
+        {successLink && (
+          <div className="permission-link-result">
+            <Check size={18} />
+            <div>
+              <strong>{successLink.message}</strong>
+              <span>Copy this SharePoint link and send it if the invitation email is not received.</span>
+              <button className="secondary-button" type="button" onClick={() => onCopyLink(successLink.url)}>
+                <Copy size={16} />
+                Copy link
+              </button>
+            </div>
+          </div>
+        )}
+
         {error && <div className="auth-error confirm-error">{error}</div>}
 
         <div className="confirm-actions">
           <button className="secondary-button" disabled={isSubmitting} type="button" onClick={onCancel}>
-            Cancel
+            {isComplete ? "Close" : "Cancel"}
           </button>
-          <button className={`primary-button ${action.type === "remove" ? "danger-primary" : ""}`} disabled={isSubmitting || !approvalRequestNo.trim()} type="submit">
-            {action.type === "remove" ? <Trash2 size={17} /> : <Check size={17} />}
-            {isSubmitting ? summary.submittingLabel : summary.confirmLabel}
-          </button>
+          {!isComplete && (
+            <button className={`primary-button ${action.type === "remove" ? "danger-primary" : ""}`} disabled={isSubmitting || !approvalRequestNo.trim()} type="submit">
+              {action.type === "remove" ? <Trash2 size={17} /> : <Check size={17} />}
+              {isSubmitting ? summary.submittingLabel : summary.confirmLabel}
+            </button>
+          )}
         </div>
       </form>
     </div>
