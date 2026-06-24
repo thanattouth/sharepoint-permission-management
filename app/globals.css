@@ -2059,8 +2059,8 @@ h2 {
 
 .report-permission-head,
 .report-permission-row {
-  grid-template-columns: minmax(220px, 1.3fr) 110px 96px minmax(190px, 1fr) 90px;
-  min-width: 820px;
+  grid-template-columns: minmax(240px, 1.3fr) 110px minmax(260px, 1.4fr) 90px;
+  min-width: 760px;
 }
 
 .report-table-head,
@@ -2770,15 +2770,11 @@ h2 {
     content: "Role";
   }
 
-  .report-permission-row > span:nth-of-type(2)::before {
-    content: "Access path";
-  }
-
   .report-permission-row > div:not(:first-child)::before {
-    content: "Scope";
+    content: "Item scope";
   }
 
-  .report-permission-row > span:nth-of-type(3)::before {
+  .report-permission-row > span:nth-of-type(2)::before {
     content: "Tenant";
   }
 

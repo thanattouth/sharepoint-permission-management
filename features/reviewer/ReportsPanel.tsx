@@ -128,7 +128,6 @@ export function ReportsPanel({
             <div className="report-permission-head" role="row">
               <span>Principal</span>
               <span>Role</span>
-              <span>Access path</span>
               <span>Item scope</span>
               <span>Tenant</span>
             </div>
@@ -139,7 +138,6 @@ export function ReportsPanel({
                   <small>{permission.email}</small>
                 </div>
                 <span className={`role-chip ${permission.role}`}>{roleLabels[permission.role]}</span>
-                <span>{formatPermissionSource(permission.source)}</span>
                 <div>
                   <strong>{permission.itemName}</strong>
                   <small>{permission.itemType} / {permission.itemPath}</small>
@@ -173,13 +171,6 @@ export function ReportsPanel({
       )}
     </section>
   );
-}
-
-function formatPermissionSource(source: PermissionEntry["source"]) {
-  if (source === "inherited") return "From parent";
-  if (source === "group") return "Via SharePoint group";
-  if (source === "link") return "Sharing link";
-  return "Added here";
 }
 
 function isDefaultReportSharePointGroup(permission: ReportSummary["permissions"][number]) {

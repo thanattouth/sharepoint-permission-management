@@ -8,7 +8,7 @@ export function ReportSkeleton() {
         <strong className="skeleton-line medium" />
       </div>
       <TableSkeleton columns={6} rows={1} />
-      <TableSkeleton columns={5} rows={5} />
+      <TableSkeleton columns={4} rows={5} />
     </div>
   );
 }
