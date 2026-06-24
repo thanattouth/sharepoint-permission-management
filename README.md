@@ -15,6 +15,7 @@ The app connects directly to Microsoft Graph. Microsoft Entra configuration is r
 ## Architecture
 
 Target architecture diagrams are maintained as diagram-as-code in [docs/architecture.md](docs/architecture.md).
+Customer tenant delivery prerequisites are maintained in [docs/customer-tenant-delivery.md](docs/customer-tenant-delivery.md).
 
 Standalone Mermaid sources are available in [docs/diagrams](docs/diagrams):
 
