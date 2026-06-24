@@ -88,7 +88,7 @@ For Azure App Service deployments, add the same `NEXT_PUBLIC_*` values as GitHub
 
 Audit persistence is isolated behind `AuditStore` in `lib/audit-store.ts`. The current implementation is `SharePointListAuditStore`; a future database-backed store can be added without changing permission or UI logic.
 
-For site-scoped permission actions, audit entries are written to the `PermissionAuditLog` list on the selected SharePoint site. App-wide events such as login and report refresh use `NEXT_PUBLIC_AUDIT_SITE` as the default audit location.
+Audit entries are written to the centralized `PermissionAuditLog` list configured by `NEXT_PUBLIC_AUDIT_SITE`, while each record still stores the affected site, library, and item metadata for traceability.
 
 ## Reviewer Scope List
 

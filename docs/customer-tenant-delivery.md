@@ -44,7 +44,7 @@ Collect these values from the customer.
 | App URL | `https://sp-access-contoso.azurewebsites.net` | Must be added as an SPA redirect URI. |
 | Target SharePoint sites | `contoso.sharepoint.com:/sites/Finance` | Comma-separated list. |
 | Protected library names | `Confidential,Secret` | Exact document library display names. |
-| Audit site | `contoso.sharepoint.com:/sites/Governance` | Default place for app-wide audit entries. |
+| Audit site | `contoso.sharepoint.com:/sites/Governance` | Central site where all audit entries are written. |
 | Audit list name | `PermissionAuditLog` | The app can create this list on first write if the Admin has permission. |
 | Review scope site | `contoso.sharepoint.com:/sites/Governance` | Site containing the reviewer mapping list. |
 | Review scope list name | `PermissionReviewScopes` | Must exist before reviewer scope loading. |

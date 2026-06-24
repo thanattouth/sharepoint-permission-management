@@ -65,6 +65,7 @@ type SavedSessionView = {
 const savedSessionViewKey = "spAccess:lastView";
 const signedOutMarkerKey = "spAccess:signedOut";
 const signedInAtKey = "spAccess:signedInAt";
+const auditRecordLimit = 500;
 
 export default function Home() {
   const [signedIn, setSignedIn] = useState(false);
@@ -361,7 +362,7 @@ export default function Home() {
           : await nextClient.getReportSummary({ reviewScopes: nextReviewScopes }).catch(() => null)
         : null;
       const initialAuditRecords = initialPortalView === "audit"
-        ? await nextAuditStore.list(100).catch(() => [])
+        ? await nextAuditStore.list(auditRecordLimit).catch(() => [])
         : [];
 
       setSignedIn(true);
@@ -496,7 +497,7 @@ export default function Home() {
     setLoadingLabel("Loading audit");
 
     try {
-      setAuditRecords(await auditStore.list(100));
+      setAuditRecords(await auditStore.list(auditRecordLimit));
     } catch (error) {
       setAuditRecords([]);
       setAuditError(error instanceof Error ? error.message : "Unable to load audit trail.");
@@ -914,7 +915,7 @@ export default function Home() {
       }
 
       if (portalView === "audit" && capabilities.canViewAudit) {
-        setAuditRecords(await auditStore.list(100));
+        setAuditRecords(await auditStore.list(auditRecordLimit));
         setAuditError("");
       }
     } catch (error) {
@@ -1046,7 +1047,7 @@ export default function Home() {
         }
       } else if (!roleCapabilities.canManagePermissions && roleCapabilities.canViewAudit) {
         setPortalView("audit");
-        setAuditRecords(await store.list(100));
+        setAuditRecords(await store.list(auditRecordLimit));
       }
       return;
     }
@@ -1073,7 +1074,7 @@ export default function Home() {
       }
 
       if (restoredPortalView === "audit") {
-        setAuditRecords(await store.list(100));
+        setAuditRecords(await store.list(auditRecordLimit));
         return;
       }
 

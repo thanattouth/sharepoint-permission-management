@@ -23,31 +23,33 @@ export function AuditPanel({
   const [auditQuery, setAuditQuery] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState<"all" | AuditLogAction>("all");
   const [auditStatusFilter, setAuditStatusFilter] = useState<"all" | AuditLogStatus>("all");
-  const filteredAuditRecords = auditRecords.filter((entry) => {
-    const search = auditQuery.trim().toLowerCase();
-    const matchesSearch = !search || [
-      entry.action,
-      entry.actorEmail,
-      entry.actorName,
-      entry.actorRole,
-      entry.approvalRequestNo,
-      entry.targetEmail,
-      entry.targetName,
-      entry.permissionRole,
-      entry.previousRole,
-      entry.siteName,
-      entry.libraryName,
-      entry.status,
-      entry.errorMessage,
-      entry.graphRequestId,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(search));
+  const filteredAuditRecords = auditRecords
+    .filter((entry) => {
+      const search = auditQuery.trim().toLowerCase();
+      const matchesSearch = !search || [
+        entry.action,
+        entry.actorEmail,
+        entry.actorName,
+        entry.actorRole,
+        entry.approvalRequestNo,
+        entry.targetEmail,
+        entry.targetName,
+        entry.permissionRole,
+        entry.previousRole,
+        entry.siteName,
+        entry.libraryName,
+        entry.status,
+        entry.errorMessage,
+        entry.graphRequestId,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(search));
 
-    const matchesAction = auditActionFilter === "all" || entry.action === auditActionFilter;
-    const matchesStatus = auditStatusFilter === "all" || entry.status === auditStatusFilter;
-    return matchesSearch && matchesAction && matchesStatus;
-  });
+      const matchesAction = auditActionFilter === "all" || entry.action === auditActionFilter;
+      const matchesStatus = auditStatusFilter === "all" || entry.status === auditStatusFilter;
+      return matchesSearch && matchesAction && matchesStatus;
+    })
+    .sort((left, right) => getAuditTime(right.createdAt) - getAuditTime(left.createdAt));
 
   return (
     <section className="page-section audit-page-section">
@@ -124,7 +126,8 @@ export function AuditPanel({
               <strong>{formatAuditAction(entry.action, entry.permissionRole, entry.previousRole)}</strong>
               <div>
                 <strong>{entry.actorName || entry.actorEmail || "Unknown"}</strong>
-                <small>{entry.actorRole || entry.actorEmail}</small>
+                <small>{entry.actorEmail || "-"}</small>
+                {entry.actorRole && <small className="audit-role-label">{entry.actorRole}</small>}
               </div>
               <div>
                 <strong>{entry.targetName || entry.targetEmail || "-"}</strong>
@@ -152,6 +155,11 @@ function formatAuditTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function getAuditTime(value: string) {
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function formatAuditAction(action: AuditLogAction, role?: AccessRole, previousRole?: AccessRole) {

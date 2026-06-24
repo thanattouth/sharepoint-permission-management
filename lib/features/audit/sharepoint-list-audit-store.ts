@@ -32,7 +32,7 @@ export class SharePointListAuditStore implements AuditStore {
   constructor(private readonly graph: GraphRequestClient) {}
 
   async write(entry: AuditLogDraft) {
-    const auditTarget = await this.getAuditList(entry.siteId, { ensureColumns: true });
+    const auditTarget = await this.getAuditList(undefined, { ensureColumns: true });
 
     await this.graph.request<GraphListItem>(
       `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items`,
@@ -72,7 +72,9 @@ export class SharePointListAuditStore implements AuditStore {
       `/sites/${encodeURIComponent(auditTarget.siteId)}/lists/${encodeURIComponent(auditTarget.listId)}/items?$top=${top}&$orderby=createdDateTime desc&$expand=fields`,
     );
 
-    return (response.value ?? []).map(mapAuditListItem);
+    return (response.value ?? [])
+      .map(mapAuditListItem)
+      .sort((left, right) => getAuditTime(right) - getAuditTime(left));
   }
 
   private async getAuditList(siteId?: string, options: { ensureColumns: boolean } = { ensureColumns: true }) {
@@ -238,4 +240,9 @@ function readSource(value: unknown): PermissionEntry["source"] | undefined {
 function readTenant(value: unknown): PermissionEntry["tenant"] | undefined {
   if (value === "internal" || value === "external") return value;
   return undefined;
+}
+
+function getAuditTime(record: AuditLogRecord) {
+  const time = new Date(record.createdAt).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
