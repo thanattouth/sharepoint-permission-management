@@ -116,6 +116,7 @@ export default function Home() {
   const appRoles = useMemo(() => getAccountRoles(account), [account]);
   const capabilities = useMemo(() => getCapabilities(appRoles), [appRoles]);
   const reviewScopeOwners = useMemo(() => getReviewScopeOwners(reviewScopes), [reviewScopes]);
+  const showGlobalDataError = Boolean(dataError && (portalView !== "workspace" || selectedSite));
 
   useEffect(() => {
     let cancelled = false;
@@ -924,9 +925,9 @@ export default function Home() {
   }
 
   function handleSharePointDataError(error: unknown) {
-    const message = getErrorMessage(error, "Unable to load SharePoint data.");
-    setDataError(message);
-    setDataConsentRequired(message.includes("Additional Microsoft Graph consent"));
+    const nextError = getSharePointDataError(error);
+    setDataError(nextError.message);
+    setDataConsentRequired(nextError.consentRequired);
   }
 
   function writeAudit(entry: {
@@ -1205,7 +1206,7 @@ export default function Home() {
 
       <section className="portal-main">
         <div className="portal-content">
-          {dataError && (
+          {showGlobalDataError && (
             <div className="auth-error action-error">
               <span>{dataError}</span>
               {dataConsentRequired && (
@@ -1305,6 +1306,66 @@ export default function Home() {
 
 function getErrorMessage(error: unknown, fallback = "Unexpected error.") {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getSharePointDataError(error: unknown) {
+  const message = getErrorMessage(error, "Unable to load SharePoint data.");
+  const normalized = message.toLowerCase();
+  const consentRequired =
+    normalized.includes("additional microsoft graph consent") ||
+    normalized.includes("consent_required") ||
+    normalized.includes("aadsts65001") ||
+    normalized.includes("admin approval") ||
+    normalized.includes("interactionrequiredautherror");
+
+  if (consentRequired) {
+    return {
+      consentRequired: true,
+      message:
+        "SharePoint data needs Microsoft Graph consent before it can load. Click Request SharePoint access to request User.ReadBasic.All and Sites.Read.All. If Microsoft shows admin approval required, ask an Entra admin to grant admin consent for this app.",
+    };
+  }
+
+  if (
+    normalized.includes("graph 401") ||
+    normalized.includes("invalid_grant") ||
+    normalized.includes("token") && normalized.includes("expired")
+  ) {
+    return {
+      consentRequired: false,
+      message: "Your Microsoft session expired or could not be refreshed. Sign out, then sign in again.",
+    };
+  }
+
+  if (
+    normalized.includes("graph 403") ||
+    normalized.includes("accessdenied") ||
+    normalized.includes("access denied") ||
+    normalized.includes("forbidden")
+  ) {
+    return {
+      consentRequired: false,
+      message:
+        "You are signed in, but this account cannot read the configured SharePoint sites. Confirm the account has access to the target site and that the tenant admin has granted the required Microsoft Graph permissions.",
+    };
+  }
+
+  if (
+    normalized.includes("graph 404") ||
+    normalized.includes("itemnotfound") ||
+    normalized.includes("not found")
+  ) {
+    return {
+      consentRequired: false,
+      message:
+        "The configured SharePoint site could not be found. Check NEXT_PUBLIC_TARGET_SITES, NEXT_PUBLIC_AUDIT_SITE, and the site URL/path in SharePoint.",
+    };
+  }
+
+  return {
+    consentRequired: false,
+    message,
+  };
 }
 
 function extractGraphRequestId(message: string) {

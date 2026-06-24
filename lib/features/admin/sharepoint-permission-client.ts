@@ -199,7 +199,7 @@ export class GraphSharePointAdminClient implements SharePointPermissionClient {
     const body = {
       recipients: [{ email: draft.email }],
       requireSignIn: true,
-      sendInvitation: false,
+      sendInvitation: true,
       roles: [toGraphRole(draft.role)],
       message: "You have been granted access from SharePoint Permission Management.",
     };

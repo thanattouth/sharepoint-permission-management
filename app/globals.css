@@ -383,7 +383,9 @@ button {
 
 .portal-content {
   display: flex;
+  flex-direction: column;
   flex: 1;
+  gap: 14px;
   min-height: 0;
   padding: 32px;
 }

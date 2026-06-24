@@ -109,9 +109,9 @@ export function SitePicker({
           <strong>SharePoint data is not available yet.</strong>
           <span>{dataError}</span>
           {dataConsentRequired && (
-            <button className="secondary-button" onClick={onRequestDataAccess}>
+            <button className="secondary-button" disabled={loadingLabel === "Requesting SharePoint access"} onClick={onRequestDataAccess}>
               <ShieldCheck size={16} />
-              Request SharePoint access
+              {loadingLabel === "Requesting SharePoint access" ? "Requesting access" : "Request SharePoint access"}
             </button>
           )}
         </div>
@@ -585,7 +585,7 @@ export function AccessPanel({
             )}
             {externalGrantTarget && (
               <small className="field-hint">
-                External recipient. This app grants direct access without sending an invitation email.
+                External recipient. SharePoint will send a sharing invitation email when access is granted.
               </small>
             )}
           </label>
