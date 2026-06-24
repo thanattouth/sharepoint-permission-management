@@ -1732,8 +1732,8 @@ h2 {
   align-items: center;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(230px, 1.4fr) 110px 100px 130px minmax(250px, 1.2fr);
-  min-width: 840px;
+  grid-template-columns: minmax(240px, 1.6fr) 120px 170px minmax(250px, 1.2fr);
+  min-width: 780px;
   padding: 12px;
 }
 
@@ -2784,7 +2784,7 @@ h2 {
   }
 
   .report-table-row > span:nth-of-type(3)::before {
-    content: "Direct";
+    content: "Can edit here";
   }
 
   .report-table-row > span:nth-of-type(4)::before {
@@ -2792,7 +2792,7 @@ h2 {
   }
 
   .report-table-row > span:nth-of-type(5)::before {
-    content: "Inherited";
+    content: "From parent";
   }
 
   .report-permission-row > span:nth-of-type(1)::before {
@@ -2800,7 +2800,7 @@ h2 {
   }
 
   .report-permission-row > span:nth-of-type(2)::before {
-    content: "Source";
+    content: "Access path";
   }
 
   .report-permission-row > div:not(:first-child)::before {

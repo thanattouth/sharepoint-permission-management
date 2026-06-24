@@ -316,7 +316,7 @@ export function ContentExplorer({
             <span>Name</span>
             <span>Type</span>
             <span>Protection</span>
-            <span>Modified</span>
+            <span>Updated</span>
           </div>
           {isLoadingContents ? (
             <TableSkeleton columns={4} rows={5} />
@@ -346,7 +346,7 @@ export function ContentExplorer({
               <span className={`policy-badge ${item.protected ? "protected" : ""}`} data-label="Protection">
                 {item.rightsPolicy}
               </span>
-              <span className="muted" data-label="Modified">{item.modified ?? "Live Graph"}</span>
+              <span className="muted" data-label="Updated">{formatModifiedDate(item.modified)}</span>
             </div>
           ))}
           {!isLoadingContents && contents.length === 0 && <div className="empty-row">No items found.</div>}
@@ -488,7 +488,7 @@ export function AccessPanel({
         <div>
           <p className="section-label">Manage Access</p>
           <h1>{item.name}</h1>
-          <p>{item.protected ? "Protected library context. Downloaded Office files remain governed by Rights Management." : "Review direct access for the selected item."}</p>
+          <p>{item.protected ? "Protected library context. Downloaded Office files remain governed by Rights Management." : "Review who can open the selected item."}</p>
         </div>
         <div className="header-actions">
           <button className="secondary-button" onClick={onBack}>
@@ -514,15 +514,15 @@ export function AccessPanel({
       <div className="access-metrics">
         <div>
           <strong>{directPermissions.length}</strong>
-          <span>Direct</span>
+          <span>Can edit here</span>
         </div>
         <div>
           <strong>{managedPermissions.length}</strong>
-          <span>Inherited / managed</span>
+          <span>Managed elsewhere</span>
         </div>
         <div>
           <strong>{permissions.length}</strong>
-          <span>Total visible</span>
+          <span>People and groups</span>
         </div>
       </div>
 
@@ -531,8 +531,8 @@ export function AccessPanel({
           <ShieldCheck size={18} />
           <span>
             {editableCount === 0
-              ? "No direct permissions are visible here. Add a direct Viewer/Editor below, or manage inherited access at the parent site/library."
-              : `${lockedCount} inherited or system-managed permission${lockedCount > 1 ? "s" : ""} ${lockedCount === 1 ? "is" : "are"} shown for context only.`}
+              ? "No editable permissions are shown here. Add Viewer/Editor access below, or manage parent access in SharePoint."
+              : `${lockedCount} permission${lockedCount > 1 ? "s" : ""} ${lockedCount === 1 ? "comes" : "come"} from SharePoint or a parent folder and can only be changed there.`}
           </span>
         </div>
       )}
@@ -566,8 +566,8 @@ export function AccessPanel({
       {canManagePermissions && (
         <form className="grant-panel" onSubmit={onGrant}>
           <div className="grant-title">
-            <strong>Grant direct access</strong>
-            <span>Use this for individual users or groups who need access to this item.</span>
+            <strong>Grant access</strong>
+            <span>Use this for people or groups who need access to this item.</span>
           </div>
           <label className="people-picker-field">
             <span>User email</span>
@@ -631,15 +631,15 @@ export function AccessPanel({
 
       <div className="permission-section-title">
         <div>
-          <p className="section-label">Direct Access</p>
-          <h2>Editable permissions</h2>
+          <p className="section-label">Editable Here</p>
+          <h2>People you can change</h2>
         </div>
         <span>{directPermissions.length}</span>
       </div>
 
       <PermissionTable
         permissions={directPermissions}
-        emptyText="No direct permissions found."
+        emptyText="No editable permissions found."
         isLoading={isLoadingPermissions}
         canManagePermissions={canManagePermissions}
         onUpdateRole={onUpdateRole}
@@ -650,8 +650,8 @@ export function AccessPanel({
         <>
           <div className="permission-section-title muted-title">
             <div>
-              <p className="section-label">Inherited And Managed</p>
-              <h2>Shown for context</h2>
+              <p className="section-label">Managed Elsewhere</p>
+              <h2>People shown for context</h2>
             </div>
             <span>{managedPermissions.length}</span>
           </div>
@@ -689,12 +689,11 @@ function PermissionTable({
       <div className="table-head" role="row">
         <span>Principal</span>
         <span>Role</span>
-        <span>Source</span>
-        <span>Activity</span>
+        <span>Access path</span>
         <span>Action</span>
       </div>
       {isLoading ? (
-        <TableSkeleton columns={5} rows={4} />
+        <TableSkeleton columns={4} rows={4} />
       ) : permissions.map((permission) => (
         <div className="table-row" role="row" key={permission.id}>
           <div className="principal-cell">
@@ -707,13 +706,12 @@ function PermissionTable({
             </span>
           </div>
           <span className={`role-chip role-display ${permission.role}`} data-label="Role">{roleLabels[permission.role]}</span>
-          <span className="muted" data-label="Source">{permission.source}</span>
-          <span className="muted" data-label="Activity">{permission.lastActivity}</span>
+          <span className="muted" data-label="Access path">{formatPermissionSource(permission)}</span>
           <div className="row-actions" data-label="Action">
             {!canManagePermissions ? (
               <span className="locked-badge">Read-only</span>
             ) : permission.canDelete === false ? (
-              <span className="locked-badge">{permission.source === "inherited" ? "Inherited" : "Managed"}</span>
+              <span className="locked-badge">{permission.source === "inherited" ? "Parent access" : "SharePoint"}</span>
             ) : (
               <>
                 <button
@@ -734,7 +732,7 @@ function PermissionTable({
                 </button>
                 <button
                   className="permission-action-button danger"
-                  title="Remove this direct permission"
+                  title="Remove this access"
                   type="button"
                   onClick={() => onRemove(permission.id)}
                 >
@@ -766,6 +764,17 @@ function SiteCardSkeleton({ count }: { count: number }) {
       </div>
     </div>
   ));
+}
+
+function formatModifiedDate(value: string | undefined) {
+  return value && value !== "Live Graph" ? value : "Current";
+}
+
+function formatPermissionSource(permission: PermissionEntry) {
+  if (permission.source === "inherited") return "From parent folder";
+  if (permission.source === "group") return "Via SharePoint group";
+  if (permission.source === "link") return "Sharing link";
+  return "Added here";
 }
 
 function DetailsSkeleton() {
@@ -819,7 +828,7 @@ function getPermissionActionSummary(action: PendingPermissionAction) {
   if (action.type === "grant") {
     return {
       title: "Confirm grant access",
-      description: "Enter the approved request number before granting direct access.",
+      description: "Enter the approved request number before granting access.",
       targetName: action.draft.displayName,
       targetEmail: action.draft.email,
       change: `Grant ${roleLabels[action.draft.role]}`,
@@ -844,10 +853,10 @@ function getPermissionActionSummary(action: PendingPermissionAction) {
 
   return {
     title: "Confirm remove access",
-    description: "Enter the approved request number before removing this direct permission.",
+    description: "Enter the approved request number before removing this access.",
     targetName: action.permission.displayName,
     targetEmail: action.permission.email,
-    change: "Remove direct access",
+    change: "Remove access",
     previousRole: roleLabels[action.permission.role],
     confirmLabel: "Remove access",
     submittingLabel: "Removing",

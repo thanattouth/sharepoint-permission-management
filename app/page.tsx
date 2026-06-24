@@ -1193,7 +1193,7 @@ export default function Home() {
         <section className="sidebar-account-card" aria-label="Signed in user">
           <div className="sidebar-account-status">
             <span className="status-dot live" />
-            <span>Live Graph</span>
+            <span>Connected</span>
           </div>
           <div className="sidebar-account-main">
             <button className="avatar-button" title={accountLabel}>

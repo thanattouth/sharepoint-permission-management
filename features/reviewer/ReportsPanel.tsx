@@ -94,9 +94,9 @@ export function ReportsPanel({
             <ReportMetric label="Libraries" value={report.libraryCount} />
             <ReportMetric label="Protected" value={report.protectedLibraryCount} />
             <ReportMetric label="Standard" value={report.standardLibraryCount} />
-            <ReportMetric label="Editable access" value={report.directPermissionCount} />
+            <ReportMetric label="Can edit here" value={report.directPermissionCount} />
             <ReportMetric label="External access" value={report.externalPermissionCount} tone="risk" />
-            <ReportMetric label="Inherited" value={report.inheritedPermissionCount} />
+            <ReportMetric label="From parent" value={report.inheritedPermissionCount} />
             <ReportMetric label="Permission rows" value={reviewerPermissions.length} />
           </div>
 
@@ -114,7 +114,7 @@ export function ReportsPanel({
             <div className="report-permission-head" role="row">
               <span>Principal</span>
               <span>Role</span>
-              <span>Source</span>
+              <span>Access path</span>
               <span>Item scope</span>
               <span>Tenant</span>
             </div>
@@ -125,7 +125,7 @@ export function ReportsPanel({
                   <small>{permission.email}</small>
                 </div>
                 <span className={`role-chip ${permission.role}`}>{roleLabels[permission.role]}</span>
-                <span>{permission.source}</span>
+                <span>{formatPermissionSource(permission.source)}</span>
                 <div>
                   <strong>{permission.itemName}</strong>
                   <small>{permission.itemType} / {permission.itemPath}</small>
@@ -161,9 +161,9 @@ export function ReportsPanel({
               <span>Site</span>
               <span>Libraries</span>
               <span>Protected</span>
-              <span>Direct</span>
+              <span>Can edit here</span>
               <span>External</span>
-              <span>Inherited</span>
+              <span>From parent</span>
             </div>
             {report.sites.map((site) => (
               <div className="report-table-row" role="row" key={site.siteId}>
@@ -206,6 +206,13 @@ function ReportMetric({
       <span>{label}</span>
     </div>
   );
+}
+
+function formatPermissionSource(source: PermissionEntry["source"]) {
+  if (source === "inherited") return "From parent";
+  if (source === "group") return "Via SharePoint group";
+  if (source === "link") return "Sharing link";
+  return "Added here";
 }
 
 function isDefaultReportSharePointGroup(permission: ReportSummary["permissions"][number]) {
