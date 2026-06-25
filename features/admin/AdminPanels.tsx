@@ -19,7 +19,7 @@ import {
   UserRound,
   UsersRound,
 } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { isInternalEmail, tenantDomain } from "@/lib/app-config";
 import { roleLabels, type PermissionDraft } from "@/lib/features/admin";
 import type { AccessRole, AuditEntry, ContentItem, PermissionEntry, SiteSummary, UserSuggestion } from "@/lib/types";
@@ -145,10 +145,33 @@ export function PermissionActionDialog({
   onApprovalRequestNoChange: (value: string) => void;
   onCancel: () => void;
   onConfirm: (event: FormEvent<HTMLFormElement>) => void;
-  onCopyLink: (url: string) => void;
+  onCopyLink: (url: string) => Promise<boolean>;
 }) {
   const summary = getPermissionActionSummary(action);
   const isComplete = Boolean(successLink);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
+  const copyResetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) {
+        window.clearTimeout(copyResetTimer.current);
+      }
+    };
+  }, []);
+
+  async function copySharePointLink() {
+    if (!successLink || copyStatus === "copying") return;
+
+    setCopyStatus("copying");
+    const copied = await onCopyLink(successLink.url);
+    setCopyStatus(copied ? "copied" : "failed");
+
+    if (copyResetTimer.current) {
+      window.clearTimeout(copyResetTimer.current);
+    }
+    copyResetTimer.current = window.setTimeout(() => setCopyStatus("idle"), 2200);
+  }
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -197,10 +220,23 @@ export function PermissionActionDialog({
             <div>
               <strong>{successLink.message}</strong>
               <span>Copy this SharePoint link and send it if the invitation email is not received.</span>
-              <button className="secondary-button" type="button" onClick={() => onCopyLink(successLink.url)}>
-                <Copy size={16} />
-                Copy link
+              <button
+                className={`secondary-button copy-link-button ${copyStatus}`}
+                disabled={copyStatus === "copying"}
+                type="button"
+                onClick={() => void copySharePointLink()}
+              >
+                {copyStatus === "copying" ? (
+                  <RefreshCw className="spin-icon" size={16} />
+                ) : copyStatus === "copied" ? (
+                  <Check size={16} />
+                ) : (
+                  <Copy size={16} />
+                )}
+                {copyStatus === "copying" ? "Copying" : copyStatus === "copied" ? "Copied" : "Copy link"}
               </button>
+              {copyStatus === "copied" && <small className="copy-link-feedback success">Link copied to clipboard.</small>}
+              {copyStatus === "failed" && <small className="copy-link-feedback">Copy did not finish automatically. Use the browser prompt to copy the link.</small>}
             </div>
           </div>
         )}

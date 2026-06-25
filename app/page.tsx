@@ -1301,7 +1301,7 @@ export default function Home() {
           onApprovalRequestNoChange={setApprovalRequestNo}
           onCancel={closePermissionConfirmation}
           onConfirm={confirmPermissionAction}
-          onCopyLink={(url) => void copyPermissionLink(url)}
+          onCopyLink={copyPermissionLink}
         />
       )}
 
@@ -1387,12 +1387,14 @@ function getSignedInEmail(account: AccountInfo | null | undefined) {
 }
 
 async function copyPermissionLink(url: string | undefined) {
-  if (!url || typeof navigator === "undefined") return;
+  if (!url || typeof navigator === "undefined") return false;
 
   try {
     await navigator.clipboard.writeText(url);
+    return true;
   } catch {
     window.prompt("Copy this SharePoint link", url);
+    return false;
   }
 }
 
