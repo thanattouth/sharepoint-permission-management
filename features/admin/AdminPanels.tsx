@@ -40,6 +40,11 @@ export type PendingPermissionAction =
       permission: PermissionEntry;
     };
 
+type ShareLinkResult = {
+  message: string;
+  url: string;
+};
+
 export function SitePicker({
   sites,
   loadingLabel,
@@ -138,10 +143,7 @@ export function PermissionActionDialog({
   approvalRequestNo: string;
   error: string;
   isSubmitting: boolean;
-  successLink?: {
-    message: string;
-    url: string;
-  };
+  successLink?: ShareLinkResult;
   onApprovalRequestNoChange: (value: string) => void;
   onCancel: () => void;
   onConfirm: (event: FormEvent<HTMLFormElement>) => void;
@@ -149,29 +151,6 @@ export function PermissionActionDialog({
 }) {
   const summary = getPermissionActionSummary(action);
   const isComplete = Boolean(successLink);
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
-  const copyResetTimer = useRef<number | undefined>(undefined);
-
-  useEffect(() => {
-    return () => {
-      if (copyResetTimer.current) {
-        window.clearTimeout(copyResetTimer.current);
-      }
-    };
-  }, []);
-
-  async function copySharePointLink() {
-    if (!successLink || copyStatus === "copying") return;
-
-    setCopyStatus("copying");
-    const copied = await onCopyLink(successLink.url);
-    setCopyStatus(copied ? "copied" : "failed");
-
-    if (copyResetTimer.current) {
-      window.clearTimeout(copyResetTimer.current);
-    }
-    copyResetTimer.current = window.setTimeout(() => setCopyStatus("idle"), 2200);
-  }
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -214,32 +193,7 @@ export function PermissionActionDialog({
           />
         </label>
 
-        {successLink && (
-          <div className="permission-link-result">
-            <Check size={18} />
-            <div>
-              <strong>{successLink.message}</strong>
-              <span>Copy this SharePoint link and send it if the invitation email is not received.</span>
-              <button
-                className={`secondary-button copy-link-button ${copyStatus}`}
-                disabled={copyStatus === "copying"}
-                type="button"
-                onClick={() => void copySharePointLink()}
-              >
-                {copyStatus === "copying" ? (
-                  <RefreshCw className="spin-icon" size={16} />
-                ) : copyStatus === "copied" ? (
-                  <Check size={16} />
-                ) : (
-                  <Copy size={16} />
-                )}
-                {copyStatus === "copying" ? "Copying" : copyStatus === "copied" ? "Copied" : "Copy link"}
-              </button>
-              {copyStatus === "copied" && <small className="copy-link-feedback success">Link copied to clipboard.</small>}
-              {copyStatus === "failed" && <small className="copy-link-feedback">Copy did not finish automatically. Use the browser prompt to copy the link.</small>}
-            </div>
-          </div>
-        )}
+        {successLink && <SharePointLinkResult successLink={successLink} onCopyLink={onCopyLink} />}
 
         {error && <div className="auth-error confirm-error">{error}</div>}
 
@@ -255,6 +209,65 @@ export function PermissionActionDialog({
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+function SharePointLinkResult({
+  successLink,
+  onCopyLink,
+}: {
+  successLink: ShareLinkResult;
+  onCopyLink: (url: string) => Promise<boolean>;
+}) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
+  const copyResetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) {
+        window.clearTimeout(copyResetTimer.current);
+      }
+    };
+  }, []);
+
+  async function copySharePointLink() {
+    if (copyStatus === "copying") return;
+
+    setCopyStatus("copying");
+    const copied = await onCopyLink(successLink.url);
+    setCopyStatus(copied ? "copied" : "failed");
+
+    if (copyResetTimer.current) {
+      window.clearTimeout(copyResetTimer.current);
+    }
+    copyResetTimer.current = window.setTimeout(() => setCopyStatus("idle"), 2200);
+  }
+
+  return (
+    <div className="permission-link-result">
+      <Check size={18} />
+      <div>
+        <strong>{successLink.message}</strong>
+        <span>Copy this SharePoint link and send it if the invitation email is not received.</span>
+        <button
+          className={`secondary-button copy-link-button ${copyStatus}`}
+          disabled={copyStatus === "copying"}
+          type="button"
+          onClick={() => void copySharePointLink()}
+        >
+          {copyStatus === "copying" ? (
+            <RefreshCw className="spin-icon" size={16} />
+          ) : copyStatus === "copied" ? (
+            <Check size={16} />
+          ) : (
+            <Copy size={16} />
+          )}
+          {copyStatus === "copying" ? "Copying" : copyStatus === "copied" ? "Copied" : "Copy link"}
+        </button>
+        {copyStatus === "copied" && <small className="copy-link-feedback success">Link copied to clipboard.</small>}
+        {copyStatus === "failed" && <small className="copy-link-feedback">Copy did not finish automatically. Use the browser prompt to copy the link.</small>}
+      </div>
     </div>
   );
 }
@@ -470,6 +483,7 @@ export function AccessPanel({
   canManagePermissions,
   loadingLabel,
   backLabel,
+  shareLink,
   onBack,
   onRefresh,
   onQueryChange,
@@ -479,6 +493,7 @@ export function AccessPanel({
   onGrant,
   onUpdateRole,
   onRemove,
+  onCopyLink,
 }: {
   item: ContentItem;
   permissions: PermissionEntry[];
@@ -491,6 +506,7 @@ export function AccessPanel({
   canManagePermissions: boolean;
   loadingLabel: string;
   backLabel: string;
+  shareLink?: ShareLinkResult;
   onBack: () => void;
   onRefresh: () => void;
   onQueryChange: (value: string) => void;
@@ -500,6 +516,7 @@ export function AccessPanel({
   onGrant: (event: FormEvent<HTMLFormElement>) => void;
   onUpdateRole: (permissionId: string, role: Exclude<AccessRole, "owner">) => void;
   onRemove: (permissionId: string) => void;
+  onCopyLink: (url: string) => Promise<boolean>;
 }) {
   const isLoadingPermissions =
     loadingLabel === "Loading permissions" ||
@@ -546,6 +563,8 @@ export function AccessPanel({
           <span>{item.rightsPolicy}</span>
         </div>
       </div>
+
+      {shareLink && <SharePointLinkResult successLink={shareLink} onCopyLink={onCopyLink} />}
 
       <div className="access-metrics">
         <div>

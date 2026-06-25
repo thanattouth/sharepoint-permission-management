@@ -715,7 +715,6 @@ export default function Home() {
     if (isPermissionActionLoading()) return;
     setPendingPermissionAction(null);
     setApprovalRequestNo("");
-    setPermissionLinkNotice("");
     setDataError("");
   }
 
@@ -1253,6 +1252,14 @@ export default function Home() {
               canManagePermissions={capabilities.canManagePermissions}
               loadingLabel={loadingLabel}
               backLabel={path.at(-1)?.name ?? `${selectedSite.name} contents`}
+              shareLink={
+                permissionLinkNotice && selectedItem.webUrl
+                  ? {
+                      message: permissionLinkNotice,
+                      url: selectedItem.webUrl,
+                    }
+                  : undefined
+              }
               onBack={leaveAccessPanel}
               onRefresh={refreshCurrentView}
               onQueryChange={setQuery}
@@ -1262,6 +1269,7 @@ export default function Home() {
               onGrant={addPermission}
               onUpdateRole={updateRole}
               onRemove={removePermission}
+              onCopyLink={copyPermissionLink}
             />
           ) : (
             <ContentExplorer
