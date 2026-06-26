@@ -58,6 +58,9 @@ export class SharePointListAuditStore implements AuditStore {
             Status: entry.status,
             ErrorMessage: entry.errorMessage ?? "",
             GraphRequestId: entry.graphRequestId ?? "",
+            InviteDeliveryStatus: entry.inviteDeliveryStatus ?? "",
+            InviteDiagnostics: entry.inviteDiagnostics ?? "",
+            ShareLink: entry.shareLink ?? "",
             CreatedAt: new Date().toISOString(),
           },
         }),
@@ -175,6 +178,9 @@ const auditColumns = [
   "Status",
   "ErrorMessage",
   "GraphRequestId",
+  "InviteDeliveryStatus",
+  "InviteDiagnostics",
+  "ShareLink",
   "CreatedAt",
 ];
 
@@ -208,6 +214,9 @@ function mapAuditListItem(item: GraphListItem): AuditLogRecord {
     status,
     errorMessage: readText(fields.ErrorMessage),
     graphRequestId: readText(fields.GraphRequestId),
+    inviteDeliveryStatus: readInviteDeliveryStatus(fields.InviteDeliveryStatus),
+    inviteDiagnostics: readText(fields.InviteDiagnostics),
+    shareLink: readText(fields.ShareLink),
     createdAt: readText(fields.CreatedAt) || item.createdDateTime || "",
   };
 }
@@ -225,6 +234,11 @@ function readAction(value: unknown): AuditLogAction {
 
 function readStatus(value: unknown): AuditLogStatus {
   return value === "Failed" ? "Failed" : "Success";
+}
+
+function readInviteDeliveryStatus(value: unknown): AuditLogRecord["inviteDeliveryStatus"] {
+  if (value === "Accepted" || value === "Partial" || value === "Failed" || value === "Unknown") return value;
+  return undefined;
 }
 
 function readRole(value: unknown): AccessRole | undefined {

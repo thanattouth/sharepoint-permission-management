@@ -28,7 +28,9 @@ import { createReviewScopeStore, fallbackReviewScopes, getReviewScopeOwners, typ
 import {
   graphReadScopes,
   graphWriteScopes,
+  GraphInviteFailureError,
   GraphSharePointPermissionClient,
+  type InviteDiagnostic,
   type PermissionDraft,
   type SharePointPermissionClient,
 } from "@/lib/features/sharepoint-client";
@@ -748,7 +750,7 @@ export default function Home() {
 
     try {
       const created = await writeGraphClient.grantPermission(selectedItem, draft);
-      setPermissions((current) => [...created, ...current]);
+      setPermissions((current) => [...created.permissions, ...current]);
 
       addAudit(`Granted ${roleLabels[newRole].toLowerCase()}`, draft.email, "Success");
       void writeAudit({
@@ -759,12 +761,16 @@ export default function Home() {
         targetName: draft.displayName,
         permissionRole: draft.role,
         tenantType: isInternalEmail(draft.email) ? "internal" : "external",
+        inviteDeliveryStatus: created.inviteDeliveryStatus,
+        inviteDiagnostics: formatInviteDiagnostics(created.inviteDiagnostics),
+        shareLink: selectedItem.webUrl,
       });
       setNewEmail("");
       setUserSuggestions([]);
       setPermissionLinkNotice(getPermissionLinkNotice("Access granted", selectedItem, draft.email));
     } catch (error) {
       const message = getErrorMessage(error, "Unable to grant permission.");
+      const inviteFailure = error instanceof GraphInviteFailureError ? error : undefined;
       setDataError(message);
       addAudit("Grant failed", draft.email, "Failed");
       void writeAudit({
@@ -777,6 +783,9 @@ export default function Home() {
         tenantType: isInternalEmail(draft.email) ? "internal" : "external",
         errorMessage: message,
         graphRequestId: extractGraphRequestId(message),
+        inviteDeliveryStatus: inviteFailure?.inviteDeliveryStatus,
+        inviteDiagnostics: inviteFailure ? formatInviteDiagnostics(inviteFailure.inviteDiagnostics) : undefined,
+        shareLink: selectedItem.webUrl,
       });
     } finally {
       setLoadingLabel("");
@@ -939,6 +948,9 @@ export default function Home() {
     tenantType?: PermissionEntry["tenant"];
     errorMessage?: string;
     graphRequestId?: string;
+    inviteDeliveryStatus?: AuditLogRecord["inviteDeliveryStatus"];
+    inviteDiagnostics?: string;
+    shareLink?: string;
   }) {
     return writeAuditWithStore(auditStore, {
       ...entry,
@@ -1257,6 +1269,7 @@ export default function Home() {
                   ? {
                       message: permissionLinkNotice,
                       url: selectedItem.webUrl,
+                      detail: getPermissionLinkDetail(selectedItem),
                     }
                   : undefined
               }
@@ -1303,6 +1316,7 @@ export default function Home() {
               ? {
                   message: permissionLinkNotice,
                   url: selectedItem.webUrl,
+                  detail: getPermissionLinkDetail(selectedItem),
                 }
               : undefined
           }
@@ -1388,6 +1402,35 @@ function extractGraphRequestId(message: string) {
 function getPermissionLinkNotice(action: string, item: ContentItem | null, targetEmail: string) {
   if (!item?.webUrl) return "";
   return `${action} for ${targetEmail}.`;
+}
+
+function getPermissionLinkDetail(item: ContentItem) {
+  if (item.type === "file") {
+    return "Send this direct file link if the invitation email is not received. Parent folders may not be browsable unless the recipient also has folder access.";
+  }
+
+  if (item.type === "folder") {
+    return "Send this direct folder link if the invitation email is not received. Recipients can browse only content covered by this folder permission.";
+  }
+
+  return "Copy this SharePoint link and send it if the invitation email is not received.";
+}
+
+function formatInviteDiagnostics(diagnostics: InviteDiagnostic[]) {
+  return diagnostics
+    .map((diagnostic) =>
+      [
+        diagnostic.email,
+        diagnostic.permissionId ? `permission=${diagnostic.permissionId}` : "",
+        diagnostic.code ? `code=${diagnostic.code}` : "",
+        diagnostic.innerCode ? `inner=${diagnostic.innerCode}` : "",
+        diagnostic.message,
+      ]
+        .filter(Boolean)
+        .join(" | "),
+    )
+    .filter(Boolean)
+    .join("\n");
 }
 
 function getSignedInEmail(account: AccountInfo | null | undefined) {

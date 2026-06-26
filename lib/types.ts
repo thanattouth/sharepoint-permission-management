@@ -76,6 +76,8 @@ export type AuditLogAction =
 
 export type AuditLogStatus = "Success" | "Failed";
 
+export type InviteDeliveryStatus = "Accepted" | "Partial" | "Failed" | "Unknown";
+
 export type AuditLogDraft = {
   action: AuditLogAction;
   actorEmail: string;
@@ -95,6 +97,9 @@ export type AuditLogDraft = {
   status: AuditLogStatus;
   errorMessage?: string;
   graphRequestId?: string;
+  inviteDeliveryStatus?: InviteDeliveryStatus;
+  inviteDiagnostics?: string;
+  shareLink?: string;
 };
 
 export type AuditLogRecord = AuditLogDraft & {

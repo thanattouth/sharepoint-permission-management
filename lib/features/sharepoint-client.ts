@@ -1,8 +1,11 @@
 import type { ReportSummary } from "../types";
 import {
   GraphSharePointAdminClient,
+  GraphInviteFailureError,
   graphReadScopes,
   graphWriteScopes,
+  type GrantPermissionResult,
+  type InviteDiagnostic,
   type PermissionDraft,
   type SharePointPermissionClient as SharePointAdminClient,
 } from "./admin";
@@ -13,7 +16,14 @@ import {
 } from "./reviewer";
 import type { TokenProvider } from "../graph-request";
 
-export { graphReadScopes, graphWriteScopes, type PermissionDraft };
+export {
+  GraphInviteFailureError,
+  graphReadScopes,
+  graphWriteScopes,
+  type GrantPermissionResult,
+  type InviteDiagnostic,
+  type PermissionDraft,
+};
 
 export interface SharePointPermissionClient extends SharePointAdminClient, SharePointReportClient {}
 

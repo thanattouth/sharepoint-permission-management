@@ -1562,6 +1562,63 @@ h2 {
   border-color: #bad6f3;
 }
 
+.item-link-menu {
+  position: relative;
+}
+
+.item-link-menu summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.item-link-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.item-link-menu-popover {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(22, 50, 78, 0.16);
+  display: grid;
+  gap: 6px;
+  min-width: 168px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 3;
+}
+
+.item-link-menu-popover button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 9px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.item-link-menu-popover button:hover:not(:disabled) {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.item-link-menu-popover small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 0 9px 5px;
+}
+
 .grant-panel {
   align-items: end;
   background: var(--panel-soft);

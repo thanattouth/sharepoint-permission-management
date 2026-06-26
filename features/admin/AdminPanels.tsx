@@ -6,6 +6,7 @@ import {
   Check,
   ChevronRight,
   Copy,
+  EllipsisVertical,
   File,
   Folder,
   Home as HomeIcon,
@@ -43,6 +44,7 @@ export type PendingPermissionAction =
 type ShareLinkResult = {
   message: string;
   url: string;
+  detail?: string;
 };
 
 export function SitePicker({
@@ -249,7 +251,7 @@ function SharePointLinkResult({
       <Check size={18} />
       <div>
         <strong>{successLink.message}</strong>
-        <span>Copy this SharePoint link and send it if the invitation email is not received.</span>
+        <span>{successLink.detail ?? "Copy this SharePoint link and send it if the invitation email is not received."}</span>
         <button
           className={`secondary-button copy-link-button ${copyStatus}`}
           disabled={copyStatus === "copying"}
@@ -551,6 +553,7 @@ export function AccessPanel({
           <button className="icon-button" disabled={isLoadingPermissions} title="Refresh permissions" onClick={onRefresh}>
             <RefreshCw className={isLoadingPermissions ? "spin-icon" : ""} size={17} />
           </button>
+          {item.webUrl && <PersistentShareLinkMenu url={item.webUrl} onCopyLink={onCopyLink} />}
         </div>
       </div>
 
@@ -721,6 +724,49 @@ export function AccessPanel({
         </>
       )}
     </section>
+  );
+}
+
+function PersistentShareLinkMenu({
+  url,
+  onCopyLink,
+}: {
+  url: string;
+  onCopyLink: (url: string) => Promise<boolean>;
+}) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
+  const copyResetTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimer.current) window.clearTimeout(copyResetTimer.current);
+    };
+  }, []);
+
+  async function copyItemLink() {
+    if (copyStatus === "copying") return;
+
+    setCopyStatus("copying");
+    const copied = await onCopyLink(url);
+    setCopyStatus(copied ? "copied" : "failed");
+
+    if (copyResetTimer.current) window.clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = window.setTimeout(() => setCopyStatus("idle"), 2200);
+  }
+
+  return (
+    <details className="item-link-menu">
+      <summary aria-label="More item actions" className="icon-button" title="More item actions">
+        <EllipsisVertical size={18} />
+      </summary>
+      <div className="item-link-menu-popover">
+        <button disabled={copyStatus === "copying"} onClick={() => void copyItemLink()} type="button">
+          {copyStatus === "copying" ? <RefreshCw className="spin-icon" size={16} /> : copyStatus === "copied" ? <Check size={16} /> : <Copy size={16} />}
+          {copyStatus === "copying" ? "Copying" : copyStatus === "copied" ? "Copied" : "Copy item link"}
+        </button>
+        {copyStatus === "failed" && <small>Use the browser prompt to copy the link.</small>}
+      </div>
+    </details>
   );
 }
 

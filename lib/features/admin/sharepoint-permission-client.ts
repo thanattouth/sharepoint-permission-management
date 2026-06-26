@@ -7,6 +7,7 @@ import type {
   PermissionEntry,
   SiteSummary,
   UserSuggestion,
+  InviteDeliveryStatus,
 } from "../../types";
 
 export type PermissionDraft = {
@@ -14,6 +15,31 @@ export type PermissionDraft = {
   email: string;
   role: AccessRole;
 };
+
+export type InviteDiagnostic = {
+  email: string;
+  permissionId?: string;
+  code?: string;
+  innerCode?: string;
+  message?: string;
+};
+
+export type GrantPermissionResult = {
+  permissions: PermissionEntry[];
+  inviteDeliveryStatus: InviteDeliveryStatus;
+  inviteDiagnostics: InviteDiagnostic[];
+};
+
+export class GraphInviteFailureError extends Error {
+  constructor(
+    message: string,
+    readonly inviteDeliveryStatus: InviteDeliveryStatus,
+    readonly inviteDiagnostics: InviteDiagnostic[],
+  ) {
+    super(message);
+    this.name = "GraphInviteFailureError";
+  }
+}
 
 export interface SharePointInventoryReader {
   listSites(): Promise<SiteSummary[]>;
@@ -24,7 +50,7 @@ export interface SharePointInventoryReader {
 
 export interface SharePointPermissionClient extends SharePointInventoryReader {
   listContentItems(siteId: string): Promise<ContentItem[]>;
-  grantPermission(target: ContentItem, draft: PermissionDraft): Promise<PermissionEntry[]>;
+  grantPermission(target: ContentItem, draft: PermissionDraft): Promise<GrantPermissionResult>;
   updatePermissionRole(permission: PermissionEntry, role: AccessRole): Promise<PermissionEntry>;
   removePermission(permission: PermissionEntry): Promise<void>;
   searchUsers(query: string): Promise<UserSuggestion[]>;
@@ -215,12 +241,18 @@ export class GraphSharePointAdminClient implements SharePointPermissionClient {
     const permissions = inviteResponse.value ?? [];
     const failures = permissions.filter((permission) => permission.error);
     const successfulPermissions = permissions.filter((permission) => !permission.error);
+    const inviteDiagnostics = permissions.map((permission) => mapInviteDiagnostic(permission, draft.email));
+    const inviteDeliveryStatus = getInviteDeliveryStatus(successfulPermissions.length, failures.length);
 
     if (failures.length > 0 && successfulPermissions.length === 0) {
-      throw new Error(formatInviteErrors(failures));
+      throw new GraphInviteFailureError(formatInviteErrors(failures), inviteDeliveryStatus, inviteDiagnostics);
     }
 
-    return successfulPermissions.map((permission) => mapPermission(target.id, driveId, itemId, permission));
+    return {
+      permissions: successfulPermissions.map((permission) => mapPermission(target.id, driveId, itemId, permission)),
+      inviteDeliveryStatus,
+      inviteDiagnostics,
+    };
   }
 
   async updatePermissionRole(permission: PermissionEntry, role: AccessRole) {
@@ -322,6 +354,24 @@ function formatInviteErrors(permissions: GraphPermission[]) {
     ...details,
     "Check SharePoint organization sharing, site sharing, domain restrictions, Microsoft Entra external collaboration settings, and whether this email domain is allowed.",
   ].join(" ");
+}
+
+function getInviteDeliveryStatus(successCount: number, failureCount: number): InviteDeliveryStatus {
+  if (failureCount > 0 && successCount > 0) return "Partial";
+  if (failureCount > 0) return "Failed";
+  if (successCount > 0) return "Accepted";
+  return "Unknown";
+}
+
+function mapInviteDiagnostic(permission: GraphPermission, fallbackEmail: string): InviteDiagnostic {
+  const error = permission.error;
+  return {
+    email: permission.invitation?.email || fallbackEmail,
+    permissionId: permission.id,
+    code: error?.code,
+    innerCode: error?.innererror?.code,
+    message: error?.localizedMessage ?? error?.message,
+  };
 }
 
 function mapSite(site: GraphSite, hostname: string, path: string): SiteSummary {

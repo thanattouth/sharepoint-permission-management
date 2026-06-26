@@ -41,6 +41,9 @@ export function AuditPanel({
         entry.status,
         entry.errorMessage,
         entry.graphRequestId,
+        entry.inviteDeliveryStatus,
+        entry.inviteDiagnostics,
+        entry.shareLink,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(search));
@@ -138,7 +141,11 @@ export function AuditPanel({
                 <small>{entry.siteName}</small>
               </div>
               <span className={entry.approvalRequestNo ? "request-ref" : "muted"}>{entry.approvalRequestNo || "-"}</span>
-              <span className={`status-chip ${entry.status === "Failed" ? "failed" : "success"}`}>{entry.status}</span>
+              <div>
+                <span className={`status-chip ${entry.status === "Failed" ? "failed" : "success"}`}>{entry.status}</span>
+                {entry.inviteDeliveryStatus && <small>Invite: {entry.inviteDeliveryStatus}</small>}
+                {entry.inviteDiagnostics && <small>{entry.inviteDiagnostics}</small>}
+              </div>
             </div>
           ))}
           {filteredAuditRecords.length === 0 && !auditError && (
