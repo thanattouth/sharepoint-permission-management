@@ -31,6 +31,7 @@ Ask the customer to confirm these prerequisites before implementation.
 | SharePoint targets | Confirm hostnames and site paths, for example `contoso.sharepoint.com:/sites/Finance`. |
 | Protected libraries | Confirm which library names should be treated as protected, for example `Confidential,Secret`. |
 | Internal domains | Confirm all internal email domains, for example `contoso.com,contoso.onmicrosoft.com`. |
+| External file access | Confirm whether external recipients must open shared files from invitation email, copied link, or both. SharePoint and Entra external sharing policies must allow this. |
 
 ## 3. Information We Need From The Customer
 
@@ -46,6 +47,7 @@ Collect these values from the customer.
 | Protected library names | `Confidential,Secret` | Exact document library display names. |
 | Audit site | `contoso.sharepoint.com:/sites/Governance` | Central site where all audit entries are written. |
 | Audit list name | `PermissionAuditLog` | The app can create this list on first write if the Admin has permission. |
+| Managed site list | `ManagedSites` | Create this central list once on the audit site so Admin-added SharePoint sites are stored by convention without extra app settings. |
 | Review scope site | `contoso.sharepoint.com:/sites/Governance` | Site containing the reviewer mapping list. |
 | Review scope list name | `PermissionReviewScopes` | Must exist before reviewer scope loading. |
 | Review scan limit | `2000` | Maximum items scanned in one review refresh. |
@@ -100,6 +102,18 @@ Add these delegated Microsoft Graph permissions and grant admin consent.
 The app uses delegated permissions. The signed-in user's SharePoint and Graph rights still matter. A user assigned the app `Admin` role must also have sufficient SharePoint/Graph permission to perform the requested action.
 
 ## 7. SharePoint Preparation
+
+### External File Sharing
+
+For external recipients to open files from the invitation email or from a copied SharePoint link, the customer must confirm these tenant controls before UAT:
+
+- SharePoint admin center organization sharing allows at least new and existing guests.
+- Each target site allows external sharing at a level no more restrictive than the organization setting.
+- Microsoft Entra External Identities B2B collaboration settings allow invitations for the recipient domain.
+- Cross-tenant access and Conditional Access policies allow the guest to redeem the invitation and sign in to the resource tenant.
+- If the file is in a protected library, Microsoft Purview sensitivity labels, encryption, or Rights Management also allow that external recipient to open the content.
+
+The app grants item permissions through Microsoft Graph and sends the SharePoint invitation email. After a successful grant, the app shows the best sharing link returned by Graph. If the invite response does not include a link, the app creates a signed-in users sharing link for the same item before falling back to the direct SharePoint item URL. This avoids sending path-based URLs that can fail for external users who cannot traverse parent folders. If the recipient still sees "You need access", troubleshoot the tenant controls above before re-granting the same permission.
 
 ### Target Sites
 
@@ -171,6 +185,32 @@ Status
 ErrorMessage
 GraphRequestId
 CreatedAt
+```
+
+### Managed Sites List
+
+Default list name:
+
+```text
+ManagedSites
+```
+
+Create this list once on the audit/governance site. The portal uses it as the central registry for SharePoint sites added by Admin users.
+
+Required columns:
+
+```text
+Hostname
+Path
+Active
+```
+
+Example row:
+
+```text
+Hostname: contoso.sharepoint.com
+Path: /sites/Finance
+Active: Yes
 ```
 
 ### Reviewer Scope List

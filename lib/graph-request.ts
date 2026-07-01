@@ -55,7 +55,7 @@ function formatGraphError(status: number, body: string) {
       return [
         "Graph sharing failed. SharePoint rejected this invitation.",
         message ? `Graph message: ${message}` : "",
-        "Check SharePoint organization sharing, site sharing, domain restrictions, Microsoft Entra external collaboration settings, and whether this email domain is allowed.",
+        getSharingFailureGuidance(message),
         requestId ? `Request ID: ${requestId}` : "",
       ]
         .filter(Boolean)
@@ -68,4 +68,26 @@ function formatGraphError(status: number, body: string) {
   } catch {
     return `Graph ${status}: ${body}`;
   }
+}
+
+function getSharingFailureGuidance(message = "") {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("domain") || normalized.includes("blocked") || normalized.includes("not allowed")) {
+    return "Check SharePoint domain restrictions and Microsoft Entra External Identities allow/block lists for this recipient domain.";
+  }
+
+  if (normalized.includes("external") || normalized.includes("guest") || normalized.includes("invitation")) {
+    return "Check SharePoint organization sharing, site sharing, Microsoft Entra B2B collaboration, and cross-tenant access settings for external guests.";
+  }
+
+  if (normalized.includes("conditional access") || normalized.includes("mfa")) {
+    return "Check Conditional Access and cross-tenant access trust settings for the guest account.";
+  }
+
+  if (normalized.includes("sensitivity") || normalized.includes("label") || normalized.includes("irm") || normalized.includes("rights")) {
+    return "Check Microsoft Purview sensitivity labels, encryption, and Rights Management for this library or file.";
+  }
+
+  return "Check SharePoint organization sharing, site sharing, domain restrictions, Microsoft Entra external collaboration settings, cross-tenant access, and whether this email domain is allowed.";
 }

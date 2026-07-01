@@ -16,6 +16,7 @@ import {
   PermissionActionDialog,
   SitePicker,
   type PendingPermissionAction,
+  type ShareLinkResult,
 } from "@/features/admin/AdminPanels";
 import { AuditPanel } from "@/features/audit/AuditPanel";
 import { ReportsPanel } from "@/features/reviewer/ReportsPanel";
@@ -23,7 +24,7 @@ import { acquireGraphToken, appSessionMaxAgeMs, getSignedInAccount, isAuthConfig
 import { isInternalEmail } from "@/lib/app-config";
 import { filterContentItemsForRoles, getAccountRoles, getCapabilities, getPrimaryRole, getRoleLabel } from "@/lib/app-roles";
 import { createAuditStore, type AuditStore } from "@/lib/features/audit";
-import { normalizeSharePointPrincipals, roleLabels } from "@/lib/features/admin";
+import { createManagedSiteStore, normalizeSharePointPrincipals, roleLabels, type ManagedSiteDraft, type ManagedSiteStore } from "@/lib/features/admin";
 import { createReviewScopeStore, fallbackReviewScopes, getReviewScopeOwners, type ReviewScope, type ReviewScopeStore } from "@/lib/features/reviewer";
 import {
   graphReadScopes,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/features/sharepoint-client";
 import type {
   AccessRole,
+  AccessReadinessResult,
   AuditEntry,
   AuditLogRecord,
   AuditLogAction,
@@ -64,6 +66,8 @@ type SavedSessionView = {
   view: AppHistoryView;
 };
 
+type PermissionLinkNotice = ShareLinkResult;
+
 const savedSessionViewKey = "spAccess:lastView";
 const signedOutMarkerKey = "spAccess:signedOut";
 const signedInAtKey = "spAccess:signedInAt";
@@ -84,11 +88,12 @@ export default function Home() {
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const [auditRecords, setAuditRecords] = useState<AuditLogRecord[]>([]);
   const [auditError, setAuditError] = useState("");
+  const [managedSites, setManagedSites] = useState<ManagedSiteDraft[]>([]);
   const [query, setQuery] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newRole, setNewRole] = useState<AccessRole>("viewer");
   const [approvalRequestNo, setApprovalRequestNo] = useState("");
-  const [permissionLinkNotice, setPermissionLinkNotice] = useState("");
+  const [permissionLinkNotice, setPermissionLinkNotice] = useState<PermissionLinkNotice | null>(null);
   const [pendingPermissionAction, setPendingPermissionAction] = useState<PendingPermissionAction | null>(null);
   const [userSuggestions, setUserSuggestions] = useState<UserSuggestion[]>([]);
   const [suggestionError, setSuggestionError] = useState("");
@@ -109,6 +114,9 @@ export default function Home() {
   }, [account]);
   const auditStore = useMemo<AuditStore>(() => {
     return createAuditStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
+  }, [account]);
+  const managedSiteStore = useMemo<ManagedSiteStore>(() => {
+    return createManagedSiteStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
   }, [account]);
   const reviewScopeStore = useMemo<ReviewScopeStore>(() => {
     return createReviewScopeStore(() => acquireGraphToken(account, undefined, { allowPopup: false }));
@@ -156,7 +164,8 @@ export default function Home() {
         const nextClient = new GraphSharePointPermissionClient(() =>
           acquireGraphToken(restoredAccount, undefined, { allowPopup: false }),
         );
-        const nextSites = await nextClient.listSites().catch((error) => {
+        const nextManagedSiteStore = createManagedSiteStore(() => acquireGraphToken(restoredAccount, undefined, { allowPopup: false }));
+        const nextSites = await loadSitesWithManagedSites(nextClient, nextManagedSiteStore).catch((error) => {
           handleSharePointDataError(error);
           return [];
         });
@@ -312,6 +321,45 @@ export default function Home() {
     }
   }
 
+  async function loadSitesWithManagedSites(client: SharePointPermissionClient, store: ManagedSiteStore) {
+    const configuredSites = await client.listSites();
+    const storedManagedSites = await store.list().catch(() => []);
+    setManagedSites(storedManagedSites);
+    const resolvedManagedSites = await Promise.all(
+      storedManagedSites.map((site) =>
+        client.resolveSite(site.hostname, site.path).catch(() => undefined),
+      ),
+    );
+    return mergeSites([...configuredSites, ...resolvedManagedSites.filter((site): site is SiteSummary => Boolean(site))]);
+  }
+
+  async function addManagedSite(site: ManagedSiteDraft) {
+    setDataError("");
+    setLoadingLabel("Adding SharePoint site");
+
+    try {
+      const nextSite = await graphClient.resolveSite(site.hostname, site.path);
+      const nextManagedSite = { hostname: nextSite.hostname, path: nextSite.path };
+      await managedSiteStore.add(nextManagedSite);
+      const nextManagedSites = await managedSiteStore.list();
+      setManagedSites(nextManagedSites);
+      setSites((current) => mergeSites([...current, nextSite]));
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : "Unable to add SharePoint site.");
+    } finally {
+      setLoadingLabel("");
+    }
+  }
+
+  async function removeManagedSite(site: SiteSummary) {
+    await managedSiteStore.remove(site);
+    const nextManagedSites = await managedSiteStore.list().catch(() => []);
+    setManagedSites(nextManagedSites);
+    setSites((current) =>
+      current.filter((candidate) => getSiteKey(candidate.hostname, candidate.path) !== getSiteKey(site.hostname, site.path)),
+    );
+  }
+
   async function connectMicrosoft365() {
     setAuthError("");
     setDataError("");
@@ -338,7 +386,8 @@ export default function Home() {
       const nextClient = new GraphSharePointPermissionClient(() =>
         acquireGraphToken(response.account, undefined, { allowPopup: false }),
       );
-      const nextSites = await nextClient.listSites().catch((error) => {
+      const nextManagedSiteStore = createManagedSiteStore(() => acquireGraphToken(response.account, undefined, { allowPopup: false }));
+      const nextSites = await loadSitesWithManagedSites(nextClient, nextManagedSiteStore).catch((error) => {
         handleSharePointDataError(error);
         return [];
       });
@@ -403,7 +452,7 @@ export default function Home() {
     setQuery("");
     setNewEmail("");
     setApprovalRequestNo("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setAuthError("");
     setDataError("");
     setReportSummary(null);
@@ -432,7 +481,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setDataError("");
     setDataConsentRequired(false);
     pushAppHistory({ selectedSite: null, path: [], selectedItem: null });
@@ -448,7 +497,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setDataError("");
     setDataConsentRequired(false);
     setReportError("");
@@ -488,7 +537,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setDataError("");
     setDataConsentRequired(false);
     setAuditError("");
@@ -573,7 +622,7 @@ export default function Home() {
     setPath(path.slice(0, index + 1));
     setSelectedItem(null);
     setPermissions([]);
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setQuery("");
     setDataError("");
     setLoadingLabel(`Opening ${target.name}`);
@@ -618,7 +667,7 @@ export default function Home() {
     setQuery("");
     setDataError("");
     setDataConsentRequired(false);
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setLoadingLabel("Loading permissions");
 
     try {
@@ -663,7 +712,7 @@ export default function Home() {
     setSelectedItem(null);
     setPermissions([]);
     setQuery("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     if (selectedSite) {
       pushAppHistory({ selectedSite, path, selectedItem: null });
     }
@@ -709,7 +758,7 @@ export default function Home() {
   function openPermissionConfirmation(action: PendingPermissionAction) {
     setDataError("");
     setApprovalRequestNo("");
-    setPermissionLinkNotice("");
+    setPermissionLinkNotice(null);
     setPendingPermissionAction(action);
   }
 
@@ -762,12 +811,12 @@ export default function Home() {
         permissionRole: draft.role,
         tenantType: isInternalEmail(draft.email) ? "internal" : "external",
         inviteDeliveryStatus: created.inviteDeliveryStatus,
-        inviteDiagnostics: formatInviteDiagnostics(created.inviteDiagnostics),
-        shareLink: selectedItem.webUrl,
+        inviteDiagnostics: formatGrantDiagnostics(created.inviteDiagnostics, created.accessReadiness),
+        shareLink: created.shareLink ?? selectedItem.webUrl,
       });
       setNewEmail("");
       setUserSuggestions([]);
-      setPermissionLinkNotice(getPermissionLinkNotice("Access granted", selectedItem, draft.email));
+      setPermissionLinkNotice(buildPermissionLinkNotice(selectedItem, draft.email, created.accessReadiness, created.shareLink));
     } catch (error) {
       const message = getErrorMessage(error, "Unable to grant permission.");
       const inviteFailure = error instanceof GraphInviteFailureError ? error : undefined;
@@ -802,7 +851,11 @@ export default function Home() {
         current.map((permission) => (permission.id === changed.id ? updated : permission)),
       );
       addAudit(`Changed role to ${roleLabels[role]}`, changed.email, "Success");
-      setPermissionLinkNotice(getPermissionLinkNotice("Role updated", selectedItem, changed.email));
+      setPermissionLinkNotice(buildPermissionLinkNotice(selectedItem, changed.email, {
+        status: "ready",
+        title: `Role updated for ${changed.email}`,
+        details: ["SharePoint accepted the role change. Send the link if the recipient needs to test the updated access."],
+      }));
       void writeAudit({
         action: "UpdateRole",
         status: "Success",
@@ -841,9 +894,12 @@ export default function Home() {
     setLoadingLabel("Removing permission");
 
     try {
-      await writeGraphClient.removePermission(removed);
-      setPermissions((current) => current.filter((permission) => permission.id !== removed.id));
-      addAudit("Removed permission", removed.email, "Success");
+      const removal = await writeGraphClient.removePermission(removed);
+      setPermissions(normalizeSharePointPrincipals(removal.remainingPermissions, selectedSite?.name ?? ""));
+      if (removal.status !== "revoked") {
+        setDataError(buildRemovalVerificationMessage(removal.verificationDetails));
+      }
+      addAudit(removal.status === "revoked" ? "Removed permission" : "Removal needs review", removed.email, "Success");
       void writeAudit({
         action: "RemoveAccess",
         status: "Success",
@@ -853,9 +909,17 @@ export default function Home() {
         permissionRole: removed.role,
         source: removed.source,
         tenantType: removed.tenant,
+        errorMessage: [
+          `status=${removal.status}`,
+          `removed=${removal.removedPermissionIds.length}`,
+          `residual=${removal.blockedPermissions.length}`,
+          ...removal.verificationDetails,
+        ].join("\n"),
       });
-      setPendingPermissionAction(null);
-      setApprovalRequestNo("");
+      if (removal.status === "revoked") {
+        setPendingPermissionAction(null);
+        setApprovalRequestNo("");
+      }
     } catch (error) {
       const message = getErrorMessage(error, "Unable to remove permission.");
       setDataError(message);
@@ -904,7 +968,7 @@ export default function Home() {
 
     try {
       const consentClient = new GraphSharePointPermissionClient(() => acquireGraphToken(account, graphReadScopes));
-      const nextSites = await consentClient.listSites();
+      const nextSites = await loadSitesWithManagedSites(consentClient, managedSiteStore);
       const nextReviewScopes = await loadReviewScopesWithStore(reviewScopeStore);
       setSites(nextSites);
       setReviewScopes(nextReviewScopes);
@@ -971,6 +1035,11 @@ export default function Home() {
     } catch (error) {
       addAudit("Audit log failed", getErrorMessage(error, "Unable to write SharePoint audit log."), "Failed");
     }
+  }
+
+  async function createSelectedItemShareLink() {
+    if (!selectedItem) return undefined;
+    return selectedItem.webUrl ?? writeGraphClient.createShareLink(selectedItem, "viewer");
   }
 
   function selectUserSuggestion(user: UserSuggestion) {
@@ -1245,7 +1314,11 @@ export default function Home() {
           ) : !selectedSite ? (
             <SitePicker
               sites={sites}
+              managedSites={managedSites}
+              canManageSites={capabilities.canManagePermissions}
               onSelect={chooseSite}
+              onAddSite={addManagedSite}
+              onRemoveSite={(site) => void removeManagedSite(site)}
               loadingLabel={loadingLabel}
               dataError={dataError}
               dataConsentRequired={dataConsentRequired}
@@ -1265,11 +1338,10 @@ export default function Home() {
               loadingLabel={loadingLabel}
               backLabel={path.at(-1)?.name ?? `${selectedSite.name} contents`}
               shareLink={
-                permissionLinkNotice && selectedItem.webUrl
+                permissionLinkNotice
                   ? {
-                      message: permissionLinkNotice,
-                      url: selectedItem.webUrl,
-                      detail: getPermissionLinkDetail(selectedItem),
+                      ...permissionLinkNotice,
+                      detail: permissionLinkNotice.detail ?? getPermissionLinkDetail(selectedItem),
                     }
                   : undefined
               }
@@ -1282,6 +1354,7 @@ export default function Home() {
               onGrant={addPermission}
               onUpdateRole={updateRole}
               onRemove={removePermission}
+              onCreateShareLink={createSelectedItemShareLink}
               onCopyLink={copyPermissionLink}
             />
           ) : (
@@ -1312,11 +1385,10 @@ export default function Home() {
           error={dataError}
           isSubmitting={isPermissionActionLoading()}
           successLink={
-            permissionLinkNotice && selectedItem?.webUrl
+            permissionLinkNotice
               ? {
-                  message: permissionLinkNotice,
-                  url: selectedItem.webUrl,
-                  detail: getPermissionLinkDetail(selectedItem),
+                  ...permissionLinkNotice,
+                  detail: selectedItem ? permissionLinkNotice.detail ?? getPermissionLinkDetail(selectedItem) : permissionLinkNotice.detail,
                 }
               : undefined
           }
@@ -1399,18 +1471,31 @@ function extractGraphRequestId(message: string) {
   return message.match(/Request ID:\s*([0-9a-f-]+)/i)?.[1];
 }
 
-function getPermissionLinkNotice(action: string, item: ContentItem | null, targetEmail: string) {
-  if (!item?.webUrl) return "";
-  return `${action} for ${targetEmail}.`;
+function buildPermissionLinkNotice(
+  item: ContentItem | null,
+  targetEmail: string,
+  readiness: AccessReadinessResult,
+  shareLink?: string,
+): PermissionLinkNotice | null {
+  const url = shareLink ?? item?.webUrl;
+  if (!url) return null;
+
+  return {
+    message: readiness.title || `Permission updated for ${targetEmail}`,
+    url,
+    detail: item ? getPermissionLinkDetail(item) : "Copy this SharePoint link and send it if the invitation email is not received.",
+    details: readiness.details,
+    tone: readiness.status === "ready" ? "success" : "warning",
+  };
 }
 
 function getPermissionLinkDetail(item: ContentItem) {
   if (item.type === "file") {
-    return "Send this direct file link if the invitation email is not received. Parent folders may not be browsable unless the recipient also has folder access.";
+    return "Send this direct file link after access is granted. It matches SharePoint manual copy-link behavior.";
   }
 
   if (item.type === "folder") {
-    return "Send this direct folder link if the invitation email is not received. Recipients can browse only content covered by this folder permission.";
+    return "Send this direct folder link after access is granted. It matches SharePoint manual copy-link behavior for folders.";
   }
 
   return "Copy this SharePoint link and send it if the invitation email is not received.";
@@ -1425,6 +1510,7 @@ function formatInviteDiagnostics(diagnostics: InviteDiagnostic[]) {
         diagnostic.code ? `code=${diagnostic.code}` : "",
         diagnostic.innerCode ? `inner=${diagnostic.innerCode}` : "",
         diagnostic.message,
+        diagnostic.guidance ? `guidance=${diagnostic.guidance}` : "",
       ]
         .filter(Boolean)
         .join(" | "),
@@ -1433,8 +1519,40 @@ function formatInviteDiagnostics(diagnostics: InviteDiagnostic[]) {
     .join("\n");
 }
 
+function formatGrantDiagnostics(diagnostics: InviteDiagnostic[], readiness: AccessReadinessResult) {
+  return [
+    formatInviteDiagnostics(diagnostics),
+    `readiness=${readiness.status}`,
+    readiness.title,
+    ...readiness.details,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildRemovalVerificationMessage(details: string[]) {
+  return [
+    "Access removal needs verification before this guest can be considered fully revoked.",
+    ...details,
+  ].join("\n");
+}
+
 function getSignedInEmail(account: AccountInfo | null | undefined) {
   return account?.username?.trim().toLowerCase() ?? "";
+}
+
+function mergeSites(sites: SiteSummary[]) {
+  const seen = new Set<string>();
+  return sites.filter((site) => {
+    const key = getSiteKey(site.hostname, site.path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function getSiteKey(hostname: string, path: string) {
+  return `${hostname.trim().toLowerCase()}:${path.trim().toLowerCase()}`;
 }
 
 async function copyPermissionLink(url: string | undefined) {

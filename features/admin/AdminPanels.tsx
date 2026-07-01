@@ -41,28 +41,48 @@ export type PendingPermissionAction =
       permission: PermissionEntry;
     };
 
-type ShareLinkResult = {
+export type ShareLinkResult = {
   message: string;
   url: string;
   detail?: string;
+  details?: string[];
+  tone?: "success" | "warning";
 };
 
 export function SitePicker({
   sites,
+  managedSites,
   loadingLabel,
   dataError,
   dataConsentRequired,
+  canManageSites,
   onSelect,
+  onAddSite,
+  onRemoveSite,
   onRequestDataAccess,
 }: {
   sites: SiteSummary[];
+  managedSites: { hostname: string; path: string }[];
   loadingLabel: string;
   dataError: string;
   dataConsentRequired: boolean;
+  canManageSites: boolean;
   onSelect: (site: SiteSummary) => void;
+  onAddSite: (site: { hostname: string; path: string }) => Promise<void>;
+  onRemoveSite: (site: SiteSummary) => void;
   onRequestDataAccess: () => void;
 }) {
   const isLoadingSites = loadingLabel === "Loading site contents" || loadingLabel === "Restoring session";
+  const [newSiteHostname, setNewSiteHostname] = useState("");
+  const [newSitePath, setNewSitePath] = useState("");
+  const managedSiteKeys = new Set(managedSites.map((site) => getSiteKey(site.hostname, site.path)));
+
+  async function submitSite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await onAddSite({ hostname: newSiteHostname, path: newSitePath });
+    setNewSiteHostname("");
+    setNewSitePath("");
+  }
 
   return (
     <section className="page-section">
@@ -74,9 +94,41 @@ export function SitePicker({
         </div>
       </div>
 
+      {canManageSites && (
+        <form className="add-site-panel" onSubmit={(event) => void submitSite(event)}>
+          <div className="grant-title">
+            <strong>Add SharePoint site</strong>
+            <span>Add a managed site for all admins without changing deployment settings.</span>
+          </div>
+          <label>
+            <span>Hostname</span>
+            <input
+              onChange={(event) => setNewSiteHostname(event.target.value)}
+              placeholder="contoso.sharepoint.com"
+              required
+              value={newSiteHostname}
+            />
+          </label>
+          <label>
+            <span>Site path</span>
+            <input
+              onChange={(event) => setNewSitePath(event.target.value)}
+              placeholder="/sites/Finance"
+              required
+              value={newSitePath}
+            />
+          </label>
+          <button className="primary-button" disabled={loadingLabel === "Adding SharePoint site"} type="submit">
+            <Plus size={18} />
+            {loadingLabel === "Adding SharePoint site" ? "Adding" : "Add site"}
+          </button>
+        </form>
+      )}
+
       <div className="site-card-grid">
         {sites.map((site, index) => (
-          <button className={`site-card site-card-${index % 4}`} key={site.id} onClick={() => onSelect(site)}>
+          <div className={`site-card site-card-${index % 4}`} key={site.id}>
+            <button className="site-card-open" onClick={() => onSelect(site)} type="button">
             <div className="site-card-band">
               <ShieldCheck className="site-card-star" size={18} />
             </div>
@@ -101,7 +153,13 @@ export function SitePicker({
                 Open site
               </span>
             </div>
-          </button>
+            </button>
+            {canManageSites && managedSiteKeys.has(getSiteKey(site.hostname, site.path)) && (
+              <button className="site-card-remove" title="Remove managed site" type="button" onClick={() => onRemoveSite(site)}>
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
         ))}
         {sites.length === 0 && loadingLabel && <SiteCardSkeleton count={2} />}
       </div>
@@ -247,11 +305,18 @@ function SharePointLinkResult({
   }
 
   return (
-    <div className="permission-link-result">
-      <Check size={18} />
+    <div className={`permission-link-result ${successLink.tone === "warning" ? "warning" : ""}`}>
+      {successLink.tone === "warning" ? <ShieldCheck size={18} /> : <Check size={18} />}
       <div>
         <strong>{successLink.message}</strong>
         <span>{successLink.detail ?? "Copy this SharePoint link and send it if the invitation email is not received."}</span>
+        {successLink.details && successLink.details.length > 0 && (
+          <ul className="permission-link-details">
+            {successLink.details.map((detail) => (
+              <li key={detail}>{detail}</li>
+            ))}
+          </ul>
+        )}
         <button
           className={`secondary-button copy-link-button ${copyStatus}`}
           disabled={copyStatus === "copying"}
@@ -495,6 +560,7 @@ export function AccessPanel({
   onGrant,
   onUpdateRole,
   onRemove,
+  onCreateShareLink,
   onCopyLink,
 }: {
   item: ContentItem;
@@ -518,6 +584,7 @@ export function AccessPanel({
   onGrant: (event: FormEvent<HTMLFormElement>) => void;
   onUpdateRole: (permissionId: string, role: Exclude<AccessRole, "owner">) => void;
   onRemove: (permissionId: string) => void;
+  onCreateShareLink: () => Promise<string | undefined>;
   onCopyLink: (url: string) => Promise<boolean>;
 }) {
   const isLoadingPermissions =
@@ -553,7 +620,13 @@ export function AccessPanel({
           <button className="icon-button" disabled={isLoadingPermissions} title="Refresh permissions" onClick={onRefresh}>
             <RefreshCw className={isLoadingPermissions ? "spin-icon" : ""} size={17} />
           </button>
-          {item.webUrl && <PersistentShareLinkMenu url={item.webUrl} onCopyLink={onCopyLink} />}
+          {item.webUrl && (
+            <PersistentShareLinkMenu
+              fallbackUrl={item.webUrl}
+              onCopyLink={onCopyLink}
+              onCreateShareLink={onCreateShareLink}
+            />
+          )}
         </div>
       </div>
 
@@ -606,6 +679,15 @@ export function AccessPanel({
         <div className="info-message approval-message">
           <ShieldCheck size={18} />
           <span>Permission changes require confirmation with an approved request number.</span>
+        </div>
+      )}
+
+      {canManagePermissions && item.protected && (
+        <div className="info-message readiness-warning">
+          <LockKeyhole size={18} />
+          <span>
+            This item is in a protected library. SharePoint access does not guarantee that external recipients can open files protected by Rights Management or a sensitivity label.
+          </span>
         </div>
       )}
 
@@ -669,7 +751,7 @@ export function AccessPanel({
             )}
             {externalGrantTarget && (
               <small className="field-hint">
-                External recipient. SharePoint will send a sharing invitation email when access is granted.
+                External recipient. The app will grant SharePoint access, but the recipient still needs a compatible guest sign-in and may be blocked by Conditional Access or file protection.
               </small>
             )}
           </label>
@@ -728,10 +810,12 @@ export function AccessPanel({
 }
 
 function PersistentShareLinkMenu({
-  url,
+  fallbackUrl,
+  onCreateShareLink,
   onCopyLink,
 }: {
-  url: string;
+  fallbackUrl: string;
+  onCreateShareLink: () => Promise<string | undefined>;
   onCopyLink: (url: string) => Promise<boolean>;
 }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "copied" | "failed">("idle");
@@ -747,7 +831,8 @@ function PersistentShareLinkMenu({
     if (copyStatus === "copying") return;
 
     setCopyStatus("copying");
-    const copied = await onCopyLink(url);
+    const shareLink = await onCreateShareLink().catch(() => undefined);
+    const copied = await onCopyLink(shareLink ?? fallbackUrl);
     setCopyStatus(copied ? "copied" : "failed");
 
     if (copyResetTimer.current) window.clearTimeout(copyResetTimer.current);
@@ -762,7 +847,7 @@ function PersistentShareLinkMenu({
       <div className="item-link-menu-popover">
         <button disabled={copyStatus === "copying"} onClick={() => void copyItemLink()} type="button">
           {copyStatus === "copying" ? <RefreshCw className="spin-icon" size={16} /> : copyStatus === "copied" ? <Check size={16} /> : <Copy size={16} />}
-          {copyStatus === "copying" ? "Copying" : copyStatus === "copied" ? "Copied" : "Copy item link"}
+          {copyStatus === "copying" ? "Creating link" : copyStatus === "copied" ? "Copied" : "Copy sharing link"}
         </button>
         {copyStatus === "failed" && <small>Use the browser prompt to copy the link.</small>}
       </div>
@@ -923,6 +1008,10 @@ function formatBytes(bytes: number) {
   const units = ["B", "KB", "MB", "GB"];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${Math.round((bytes / 1024 ** index) * 10) / 10} ${units[index]}`;
+}
+
+function getSiteKey(hostname: string, path: string) {
+  return `${hostname.trim().toLowerCase()}:${path.trim().toLowerCase()}`;
 }
 
 function getPermissionActionSummary(action: PendingPermissionAction) {

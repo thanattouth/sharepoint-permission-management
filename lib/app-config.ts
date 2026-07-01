@@ -6,6 +6,7 @@ export type TargetSiteConfig = {
 const defaultTenantDomain = "baht.net";
 const defaultProtectedLibraries = ["Confidential", "Secret"];
 const defaultAuditListName = "PermissionAuditLog";
+const defaultManagedSiteListName = "ManagedSites";
 const defaultReviewScopeListName = "PermissionReviewScopes";
 const defaultReviewScanItemLimit = 2000;
 const defaultTargetSites: TargetSiteConfig[] = [
@@ -34,6 +35,9 @@ export const targetSites = parseTargetSites(process.env.NEXT_PUBLIC_TARGET_SITES
 export const auditSite = parseSingleTargetSite(process.env.NEXT_PUBLIC_AUDIT_SITE) ?? targetSites[0];
 export const auditListName = process.env.NEXT_PUBLIC_AUDIT_LIST_NAME?.trim() || defaultAuditListName;
 export const auditLogEnabled = process.env.NEXT_PUBLIC_AUDIT_LOG_ENABLED !== "false";
+export const managedSiteListName = process.env.NEXT_PUBLIC_MANAGED_SITE_LIST_NAME?.trim() || defaultManagedSiteListName;
+export const managedSiteListId = process.env.NEXT_PUBLIC_MANAGED_SITE_LIST_ID?.trim() || "";
+export const managedSiteListEnabled = process.env.NEXT_PUBLIC_MANAGED_SITE_LIST_ENABLED !== "false";
 export const reviewScopeSite = parseSingleTargetSite(process.env.NEXT_PUBLIC_REVIEW_SCOPE_SITE) ?? auditSite;
 export const reviewScopeListName = process.env.NEXT_PUBLIC_REVIEW_SCOPE_LIST_NAME?.trim() || defaultReviewScopeListName;
 export const reviewScopeListEnabled = process.env.NEXT_PUBLIC_REVIEW_SCOPE_LIST_ENABLED !== "false";

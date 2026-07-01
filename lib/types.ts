@@ -78,6 +78,14 @@ export type AuditLogStatus = "Success" | "Failed";
 
 export type InviteDeliveryStatus = "Accepted" | "Partial" | "Failed" | "Unknown";
 
+export type AccessReadinessStatus = "ready" | "caution" | "blocked";
+
+export type AccessReadinessResult = {
+  status: AccessReadinessStatus;
+  title: string;
+  details: string[];
+};
+
 export type AuditLogDraft = {
   action: AuditLogAction;
   actorEmail: string;

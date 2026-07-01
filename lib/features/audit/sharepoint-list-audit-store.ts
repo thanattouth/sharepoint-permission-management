@@ -40,27 +40,27 @@ export class SharePointListAuditStore implements AuditStore {
         method: "POST",
         body: JSON.stringify({
           fields: {
-            Title: formatAuditTitle(entry),
-            Action: entry.action,
-            ActorEmail: entry.actorEmail,
-            ActorName: entry.actorName,
-            ActorRole: entry.actorRole,
-            ApprovalRequestNo: entry.approvalRequestNo ?? "",
-            TargetEmail: entry.targetEmail ?? "",
-            TargetName: entry.targetName ?? "",
-            PermissionRole: entry.permissionRole ?? "",
-            PreviousRole: entry.previousRole ?? "",
-            SiteName: entry.siteName ?? "",
-            LibraryName: entry.libraryName ?? "",
-            ItemId: entry.itemId ?? "",
-            Source: entry.source ?? "",
-            TenantType: entry.tenantType ?? "",
-            Status: entry.status,
-            ErrorMessage: entry.errorMessage ?? "",
-            GraphRequestId: entry.graphRequestId ?? "",
-            InviteDeliveryStatus: entry.inviteDeliveryStatus ?? "",
-            InviteDiagnostics: entry.inviteDiagnostics ?? "",
-            ShareLink: entry.shareLink ?? "",
+            Title: auditText(formatAuditTitle(entry)),
+            Action: auditText(entry.action),
+            ActorEmail: auditText(entry.actorEmail),
+            ActorName: auditText(entry.actorName),
+            ActorRole: auditText(entry.actorRole),
+            ApprovalRequestNo: auditText(entry.approvalRequestNo),
+            TargetEmail: auditText(entry.targetEmail),
+            TargetName: auditText(entry.targetName),
+            PermissionRole: auditText(entry.permissionRole),
+            PreviousRole: auditText(entry.previousRole),
+            SiteName: auditText(entry.siteName),
+            LibraryName: auditText(entry.libraryName),
+            ItemId: auditText(entry.itemId),
+            Source: auditText(entry.source),
+            TenantType: auditText(entry.tenantType),
+            Status: auditText(entry.status),
+            ErrorMessage: auditText(entry.errorMessage),
+            GraphRequestId: auditText(entry.graphRequestId),
+            InviteDeliveryStatus: auditText(entry.inviteDeliveryStatus),
+            InviteDiagnostics: auditText(entry.inviteDiagnostics),
+            ShareLink: auditText(entry.shareLink),
             CreatedAt: new Date().toISOString(),
           },
         }),
@@ -188,6 +188,13 @@ function formatAuditTitle(entry: AuditLogDraft) {
   return [entry.action, entry.targetEmail || entry.targetName || entry.libraryName, entry.status]
     .filter(Boolean)
     .join(" - ");
+}
+
+function auditText(value: unknown, maxLength = 240) {
+  if (value === undefined || value === null) return "";
+  const text = String(value).replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1)}…`;
 }
 
 function mapAuditListItem(item: GraphListItem): AuditLogRecord {

@@ -84,6 +84,20 @@ The app creates the list automatically on first write when the signed-in Admin h
 
 Set `NEXT_PUBLIC_AUDIT_LOG_ENABLED=false` to disable SharePoint audit writes without removing the local recent-changes UI.
 
+## Managed Sites
+
+Admins can add SharePoint sites from the app. By convention, the app stores those rows in a SharePoint List named `ManagedSites` on `NEXT_PUBLIC_AUDIT_SITE`. For customer delivery, create this list once and the portal will use it without additional environment variables.
+
+Manual `ManagedSites` columns:
+
+- `Hostname` - single line of text
+- `Path` - single line of text
+- `Active` - single line of text, use `Yes` for active rows
+
+Example row: `Hostname=bahtnet.sharepoint.com`, `Path=/sites/DGCS`, `Active=Yes`.
+
+Optional overrides are available only for unusual tenants: `NEXT_PUBLIC_MANAGED_SITE_LIST_NAME`, `NEXT_PUBLIC_MANAGED_SITE_LIST_ID`, and `NEXT_PUBLIC_MANAGED_SITE_LIST_ENABLED=false`.
+
 For Azure App Service deployments, add the same `NEXT_PUBLIC_*` values as GitHub repository variables too. Next.js embeds `NEXT_PUBLIC_*` values during `next build`, so Azure App Settings alone are not enough when GitHub Actions builds the artifact.
 
 Audit persistence is isolated behind `AuditStore` in `lib/audit-store.ts`. The current implementation is `SharePointListAuditStore`; a future database-backed store can be added without changing permission or UI logic.
